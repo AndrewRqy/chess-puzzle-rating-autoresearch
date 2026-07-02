@@ -166,6 +166,14 @@ def _sequence_features(board_after_setup: chess.Board, solution: list[str]) -> d
     to_squares = []
     move_distances = []
 
+    # Tactical-density trackers: per-ply counts of legal moves, legal
+    # captures, and legal checks the side-to-move faces at each ply of
+    # the solution. These give the booster direct information about
+    # candidate-move ambiguity, which separates mid-Elo puzzles.
+    legal_counts: list[int] = []
+    legal_captures: list[int] = []
+    legal_checks: list[int] = []
+
     b = board_after_setup.copy(stack=False)
     piece_change = 0
     ends_in_mate = 0
@@ -179,6 +187,15 @@ def _sequence_features(board_after_setup: chess.Board, solution: list[str]) -> d
             # Some Lichess puzzles pass move validation via san; fallback
             # to skipping the rest gracefully.
             break
+        # Tactical density at this ply — before the solution move is
+        # applied, count all legal candidates, how many are captures,
+        # and how many give check. gives_check() is a cheap no-push
+        # test in python-chess.
+        legals = list(b.legal_moves)
+        legal_counts.append(len(legals))
+        legal_captures.append(sum(1 for m in legals if b.is_capture(m)))
+        legal_checks.append(sum(1 for m in legals if b.gives_check(m)))
+
         is_solver = (i % 2 == 0)
         is_capture = b.is_capture(mv)
         gives_check = b.gives_check(mv)
@@ -238,6 +255,34 @@ def _sequence_features(board_after_setup: chess.Board, solution: list[str]) -> d
         feats["sol_to_file_range"] = 0
         feats["sol_to_rank_range"] = 0
 
+    # Tactical-density aggregates over the solution sequence.
+    if legal_counts:
+        feats["sol_legal_max"] = int(max(legal_counts))
+        feats["sol_legal_mean"] = float(np.mean(legal_counts))
+        feats["sol_legal_last"] = int(legal_counts[-1])
+        feats["sol_legal_sum"] = int(sum(legal_counts))
+    else:
+        feats["sol_legal_max"] = 0
+        feats["sol_legal_mean"] = 0.0
+        feats["sol_legal_last"] = 0
+        feats["sol_legal_sum"] = 0
+    if legal_captures:
+        feats["sol_captures_max"] = int(max(legal_captures))
+        feats["sol_captures_mean"] = float(np.mean(legal_captures))
+        feats["sol_captures_sum"] = int(sum(legal_captures))
+    else:
+        feats["sol_captures_max"] = 0
+        feats["sol_captures_mean"] = 0.0
+        feats["sol_captures_sum"] = 0
+    if legal_checks:
+        feats["sol_checks_max"] = int(max(legal_checks))
+        feats["sol_checks_mean"] = float(np.mean(legal_checks))
+        feats["sol_checks_sum"] = int(sum(legal_checks))
+    else:
+        feats["sol_checks_max"] = 0
+        feats["sol_checks_mean"] = 0.0
+        feats["sol_checks_sum"] = 0
+
     return feats
 
 
@@ -256,6 +301,15 @@ def _theme_features(themes: Iterable[str] | None) -> dict:
     feats["theme_missing"] = int(seen == 0)
     feats["theme_count"] = seen
     return feats
+
+
+def _center_distance(sq: int) -> int:
+    """Chebyshev distance from a square to the 4-square center block."""
+    fx = chess.square_file(sq)
+    ry = chess.square_rank(sq)
+    dx = max(0, 3 - fx, fx - 4)
+    dy = max(0, 3 - ry, ry - 4)
+    return max(dx, dy)
 
 
 def extract_features(fen: str, moves: str, themes=None) -> dict:
@@ -277,10 +331,19 @@ def extract_features(fen: str, moves: str, themes=None) -> dict:
 
     move_list = moves.split() if moves else []
     setup_ok = False
+    setup_is_capture = 0
+    setup_gives_check = 0
+    setup_piece_type = 0
+    setup_to_center = 0
     if move_list:
         try:
             setup = chess.Move.from_uci(move_list[0])
             if setup in board.legal_moves:
+                setup_is_capture = int(board.is_capture(setup))
+                setup_gives_check = int(board.gives_check(setup))
+                piece = board.piece_at(setup.from_square)
+                setup_piece_type = int(piece.piece_type) if piece is not None else 0
+                setup_to_center = _center_distance(setup.to_square)
                 board.push(setup)
                 setup_ok = True
         except Exception:
@@ -291,6 +354,13 @@ def extract_features(fen: str, moves: str, themes=None) -> dict:
     solution = move_list[1:] if setup_ok else move_list
     feats.update(_sequence_features(board, solution))
     feats.update(_theme_features(themes))
+
+    # Setup-move features (appended at the end so that the previously
+    # frozen feature order is preserved as a prefix of the new order).
+    feats["setup_is_capture"] = setup_is_capture
+    feats["setup_gives_check"] = setup_gives_check
+    feats["setup_piece_type"] = setup_piece_type
+    feats["setup_to_center"] = setup_to_center
     return feats
 
 

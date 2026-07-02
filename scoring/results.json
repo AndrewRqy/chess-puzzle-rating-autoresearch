@@ -1,25 +1,25 @@
 {
   "properties": {
     "test_mae": {
-      "value": 244.31167987060547,
+      "value": 234.63552868652343,
       "direction": "min",
       "target": 250.0,
       "satisfied": true,
-      "gap": -5.688320129394526
+      "gap": -15.364471313476571
     },
     "spearman": {
-      "value": 0.6656449965378456,
+      "value": 0.6949078290529269,
       "direction": "max",
       "target": 0.4,
       "satisfied": true,
-      "gap": 0.26564499653784557
+      "gap": 0.2949078290529269
     },
     "middle_decile_calibration": {
-      "value": 174.001565885143,
+      "value": 158.95516736968216,
       "direction": "min",
       "target": 100.0,
       "satisfied": false,
-      "gap": 74.00156588514301
+      "gap": 58.95516736968216
     }
   },
   "overall_satisfied": false,

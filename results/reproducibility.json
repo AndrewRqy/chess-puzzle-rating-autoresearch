@@ -1,18 +1,18 @@
 {
   "seed42": {
-    "test_mae": 253.61753845214844,
-    "test_rmse": 324.5743713378906,
-    "test_spearman": 0.7409061999290419,
-    "test_middle_decile_calibration": 100.9412841796875,
-    "calib_alpha": 0.35000000000000003
+    "test_mae": 240.80015563964844,
+    "test_rmse": 310.0689697265625,
+    "test_spearman": 0.7681444133963932,
+    "test_middle_decile_calibration": 85.64111328125,
+    "calib_alpha": 0.30000000000000004
   },
   "seed1": {
-    "test_mae": 253.77296447753906,
-    "test_rmse": 324.6519775390625,
-    "test_spearman": 0.7410133424578847,
-    "test_middle_decile_calibration": 100.39990234375,
-    "calib_alpha": 0.35000000000000003
+    "test_mae": 240.91700744628906,
+    "test_rmse": 310.34417724609375,
+    "test_spearman": 0.7676438086493423,
+    "test_middle_decile_calibration": 86.4842529296875,
+    "calib_alpha": 0.30000000000000004
   },
-  "delta_mae": 0.155426025390625,
-  "delta_spearman": 0.0001071425288428074
+  "delta_mae": 0.116851806640625,
+  "delta_spearman": 0.0005006047470508257
 }

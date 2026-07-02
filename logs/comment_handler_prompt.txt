@@ -11,148 +11,202 @@ You are working on an existing research project. The user has provided feedback 
 Experiment-stage modification only.
 
 ## Current state summary
-Parent state (ac978acb) is a 141-feature `HistGradientBoostingRegressor`
-(squared-error loss, RD-weighted training) followed by post-hoc
-`IsotonicRegression` fit on a held-out val slice. On the sealed scorer:
+Parent state (e67156a) ships a 141-feature HistGradientBoostingRegressor with a
+convex-blend calibrator (isotonic + CDF quantile-matcher, alpha=0.35 chosen on
+val under a val-MAE budget). Public `scoring/results.json` reports:
 
-- `test_mae` = 232.16 (target 250, **satisfied**; 17.84 Elo headroom).
-- `spearman` = 0.665 (target 0.4, **satisfied** comfortably).
-- `middle_decile_calibration` = 215.31 (target 100.0, **NOT satisfied**;
-  gap 115.31). This is the sole bottleneck.
+- `test_mae` = 244.31 (target <250, **satisfied**, headroom ~5.7 Elo).
+- `spearman` = 0.666 (target >0.4, **satisfied**).
+- `middle_decile_calibration` = 174.00 (target <100, **NOT satisfied**, gap 74).
+- `overall_satisfied` = false; declared bottleneck: `middle_decile_calibration`.
 
-The internal per-decile table shows tail-compression: the model's
-predictions have narrower spread than the truth. D7 (mean-true 1857,
-mean-pred 1715) is the internal worst bin in the middle-Elo range; D8
-and D9 are worse but outside the [1400, 2000] band the sealed metric
-scores.
+Public score meta: `rd_max = 80`, `middle_elo_range = [1400, 2000]`,
+`n_test = 2000`.
+
+The parent REPORT.md diagnoses the residual mid-decile gap explicitly: *"the
+underlying booster genuinely cannot separate hard puzzles in feature space; a
+calibrator can only redistribute mass, not create new resolution."* The per-decile
+table in results/metrics.json confirms it: D7 raw pred 1756 vs true 1857, D8 1863
+vs 2045, D9 2013 vs 2341. The booster's raw prediction spread in the middle Elo
+band [1400, 2000] is what limits calibration; the calibrator has already extracted
+most of the achievable tail spread from the current 141-dim feature vector.
 
 ## Previous attempts from this node
-One prior attempt (attempt_1, sha c6f57ac): swapped isotonic **entirely**
-for a CDF quantile-matching calibrator. Result on sealed scorer:
+Two attempts have already been made from this parent node, both REJECTED:
 
-- `test_mae` 232.16 → 257.68 → *previously satisfied property lost*, so
-  the attempt was **rejected**.
-- `middle_decile_calibration` 215.31 → 164.01 (still not satisfied but
-  narrowed by ~51 Elo).
-- `spearman` 0.665 → 0.665 (monotone transform, preserved).
+- **Attempt 1 (7f7ec7a): tail-emphasis sample weights.** Added a piecewise-linear
+  `tail_weight(y)` factor multiplied into the RD-based training weight. Public
+  score moves: `middle_decile_calibration` 174.00 -> 176.68 (**regressed**),
+  `test_mae` 244.31 -> 248.02, `spearman` 0.666 -> 0.660. Whiteboard tip T4
+  explains the failure: the sealed mid-decile metric is dominated by D7 (mean-true
+  1857), and tail upweighting only widens raw preds for that band by ~2-4 Elo,
+  which is absorbed by the val-MAE budget that keeps alpha at 0.35.
+- **Attempt 2 (d3e7fff): RD-filtered val for calibrator-alpha selection.** Modified
+  `src/train.py` to pick alpha on val subset RD<=80 and widened the alpha grid.
+  Public score moves: `middle_decile_calibration` 174.00 -> 195.73
+  (**much worse**), `test_mae` 244.31 -> 235.49 (better), `spearman` 0.666 -> 0.666.
+  Whiteboard tip T5 predicted this: filtering val to RD<=80 lowers iso val-MAE by
+  ~15 Elo, which tightens the MAE budget and pushes alpha UP to ~0.70 (more
+  isotonic, less CDF spread), narrowing raw prediction spread on mid-Elo bins.
 
-Whiteboard tip T1 records the same trade-off on internal test:
-CDF moved middle-decile calibration 141.7 → 79.0 but MAE 249.2 → 263.5.
-
-Takeaway: pure isotonic under-corrects the tail compression; pure CDF
-over-corrects and pays too much MAE. A **blend** should sit on the
-Pareto frontier between them.
+Together these tell us: attacks on the calibrator alpha AND on the sample-weight
+formulation are both constrained by the same val-MAE budget and both hit the
+Pareto frontier of the current 141-feature booster. The next-attempt axis must
+be to give the raw booster more information about mid-difficulty puzzles.
 
 ## Proposed modification
-Replace the current single calibrator with a **convex blend** of an
-isotonic calibrator and a CDF quantile-matching calibrator, with the
-blend weight `alpha` selected on the held-out val slice under an
-explicit MAE-headroom constraint.
+Add **tactical-density features** to `src/features.py` and rebuild the dataset,
+then retrain the HGBR and refit the existing isotonic+CDF blend calibrator. The
+proposed additions are cheap, deterministic, and computed with the same
+python-chess primitives already in use. They target the D7-D9 resolution gap
+directly by encoding "how many candidate moves does the solver face at each ply"
+and "does the setup involve a material sacrifice", both of which are strong
+first-order signals for medium-to-hard puzzle difficulty and are not currently
+captured by the sol_len / sol_check_ratio family.
 
-Concretely, in `src/train.py` after the booster is trained and
-`val_pred_raw`, `val_true` are available on the val slice:
+Concretely, add the following feature block to `src/features.py`, executed on
+the same board object that already walks the solution sequence:
 
-1. **Fit both calibrators on val**:
-   - Isotonic: `iso = IsotonicRegression(out_of_bounds='clip').fit(val_pred_raw, val_true)`.
-   - CDF anchors: `pred_sorted = np.sort(val_pred_raw).astype(np.float32)`,
-     `true_sorted = np.sort(val_true).astype(np.float32)`.
-2. **Define a callable that applies each and blends**:
-   ```
-   def calibrate(p, alpha):
-       iso_p = iso.predict(p)
-       ranks = np.searchsorted(pred_sorted, p, side='left') / len(pred_sorted)
-       cdf_p = np.interp(
-           ranks,
-           np.linspace(0.0, 1.0, len(true_sorted), dtype=np.float32),
-           true_sorted,
-       )
-       cdf_p = np.clip(cdf_p, float(true_sorted[0]), float(true_sorted[-1]))
-       return alpha * iso_p + (1.0 - alpha) * cdf_p
-   ```
-3. **Select `alpha` on val**. To reserve MAE headroom for the sealed
-   scorer, do a constrained grid search on
-   `alpha_grid = np.linspace(0.0, 1.0, 21)`:
-   - Compute a helper val metric `val_mid_dec_cal_1400_2000` that
-     mimics the sealed metric: bucket val rows into deciles by true
-     rating (only rows whose bin-mean-true rating falls in [1400, 2000]
-     are eligible), take max |mean_pred − mean_true| across eligible
-     bins.
-   - Choose `alpha* = argmin(val_mid_dec_cal_1400_2000)` **subject to**
-     `val_mae(alpha) <= max(val_mae(alpha=1.0), 220.0) + 5.0`. That is:
-     never allow val MAE to drift more than 5 Elo above the pure-isotonic
-     val MAE. This preserves at least ~12 Elo of sealed-MAE headroom
-     given the current 17.84 Elo margin, based on the observed
-     val↔sealed MAE alignment (val_mae 247.87 in `metrics.json` vs
-     sealed 232.16, i.e. sealed is ~16 Elo lower).
-   - Break ties toward smaller alpha (more CDF, better calibration).
-4. **Persist**: in the joblib artifact, store `iso` (as before),
-   `calib_pred_sorted`, `calib_true_sorted`, and the scalar `calib_alpha`.
-5. **Inference** (`src/predict.py`): load all four; apply the same
-   `calibrate(p, alpha)` transform to raw booster output.
-6. **Reproducibility**: rerun the seed-1 twin so the two-seed harness
-   (`results/reproducibility.json`) is updated.
+```python
+# For each ply of the solution, record:
+#   - number of legal moves (candidate breadth)
+#   - number of legal captures (tactical density)
+#   - number of legal checks (forcing-move density)
+# Then reduce across the sequence into a small set of scalar features.
 
-**Why this is safe**:
-- Both isotonic and CDF calibrators are monotone in raw prediction; a
-  convex combination of two monotone functions is monotone, so
-  `spearman` is exactly preserved.
-- The explicit val-MAE constraint prevents the failure mode of
-  attempt_1 (MAE blown past target). The 5-Elo val cushion is chosen
-  such that even in the worst-case slack tightening, the sealed MAE
-  should remain below 250.
-- If the constraint forces `alpha = 1.0`, we recover the parent state
-  exactly — no regression is possible.
+legal_counts = []
+legal_captures = []
+legal_checks = []
+for ply_board in walk_solution(board, moves):
+    legals = list(ply_board.legal_moves)
+    legal_counts.append(len(legals))
+    legal_captures.append(sum(1 for m in legals if ply_board.is_capture(m)))
+    # cheap check test: push/pop
+    n_checks = 0
+    for m in legals:
+        ply_board.push(m)
+        if ply_board.is_check():
+            n_checks += 1
+        ply_board.pop()
+    legal_checks.append(n_checks)
 
-**Rationale for expecting improvement over parent**:
-- Attempt_1 showed sealed calibration moved from 215.31 → 164.01 at
-  `alpha=0` with a 25-Elo MAE cost. Under a rough linearity assumption,
-  `alpha ~ 0.3–0.5` should land calibration near 180–195 while keeping
-  MAE around 240–246 (well inside the 250 target). Even the pessimistic
-  case narrows the current 115-Elo gap by ~20–35 Elo.
-- MAE(blend) is often *lower* than the linear interpolation of the two
-  endpoints when the two calibrators make partially uncorrelated errors
-  (standard ensemble effect), so real MAE cost is likely smaller than
-  the naive average predicts.
+feats['sol_legal_max']       = max(legal_counts)     if legal_counts else 0
+feats['sol_legal_mean']      = mean(legal_counts)    if legal_counts else 0
+feats['sol_legal_last']      = legal_counts[-1]      if legal_counts else 0
+feats['sol_legal_sum']       = sum(legal_counts)
+feats['sol_captures_max']    = max(legal_captures)   if legal_captures else 0
+feats['sol_captures_mean']   = mean(legal_captures)  if legal_captures else 0
+feats['sol_captures_sum']    = sum(legal_captures)
+feats['sol_checks_max']      = max(legal_checks)     if legal_checks else 0
+feats['sol_checks_mean']     = mean(legal_checks)    if legal_checks else 0
+feats['sol_checks_sum']      = sum(legal_checks)
+
+# Setup-move features (the opponent's first move, which is applied to the FEN
+# to produce the puzzle-start position). Already parsed as `setup_move` in the
+# code; extract these signals from it:
+feats['setup_is_capture']    = int(pre_board.is_capture(setup_move))
+feats['setup_gives_check']   = int(setup_gives_check_flag)  # already available
+feats['setup_piece_type']    = piece_type_id(pre_board, setup_move.from_square)
+feats['setup_to_center']     = center_distance(setup_move.to_square)  # cheap
+```
+
+Everything else stays the same: same 300k/50k/50k hash split, same HGBR
+hyperparameters (`squared_error`, `lr=0.07`, `max_leaf_nodes=127`,
+`min_samples_leaf=100`, `l2=0.5`, `max_iter=500`, early stopping), same
+RD-based training sample_weight (parent's `1/(1+RD/40)`), same convex isotonic +
+CDF calibrator with parent's alpha grid on the full (RD<=90) val slice and the
+val-MAE budget `max(val_mae(alpha=1.0), 220) + 5`. The calibrator will refit
+naturally on the new booster's val predictions and select its own alpha.
+
+Rationale: the sealed slice's D7-D9 puzzles have `mean_true` at 1857 / 2045 /
+2341, and the parent's raw predictions on them are 1756 / 1863 / 2013 —
+compressed by ~100 / 180 / 330 Elo. The current features (sol_len, sol_check_ratio,
+mate flags, theme flags) heavily rank first-order tactics (short mates, one-move
+solutions) but do not encode the tactical density of positions with many
+plausible moves — which is exactly what separates a 1500-rated puzzle from a
+2000-rated puzzle. Adding `sol_legal_*`, `sol_captures_*`, `sol_checks_*`
+gives the booster a direct signal for candidate-move ambiguity, and the setup
+features (capture, check, piece type, centrality) let it distinguish "quiet
+setup" puzzles from "opponent-forced-move" puzzles that tend to be harder. All
+of these are position-derived (not label-leaking), deterministic, and require
+no external engine.
+
+Guards inside the change:
+- Add the new features at the end of the feature vector so the training/val/test
+  arrays remain positionally compatible with the retrain pipeline.
+- Update `models/feature_names.json` to reflect the new dim; the frozen name list
+  is how `src/predict.py` aligns inference features to the trained model.
+- Retrain seed=42 AND seed=1 (existing reproducibility protocol) so
+  `results/reproducibility.json` reports the new cross-seed deltas.
+- Regenerate figures and REPORT.md per-decile table.
+- Keep the val-MAE-budget-with-fallback contract; if the new booster's alpha
+  search returns infeasible, fall back to `alpha=1.0` (pure isotonic) — same
+  no-regression guarantee as parent.
+- Compute budget: each new feature is O(legal_moves) per ply, so per puzzle it's
+  roughly 5-10x the current move-walk cost; on 300k rows this should stay well
+  under the parent's dataset-build time.
 
 ## Keep fixed
 - Do not rerun resource finding.
-- Do not modify scoring/interface.md.
-- Do not read or modify hidden scoring files.
+- Do not modify `scoring/interface.md`.
+- Do not read or modify hidden scoring files
+  (`scoring/eval.py`, `scoring/targets.json`, `.scoring_sealed/`).
 - Keep the research question fixed.
-- Keep the booster, features, splits, sample weights, seeds, and the
-  `predict(rows)` signature unchanged. Only the calibrator layer changes.
+- Keep the 300k/50k/50k hash-based split, the RD<=90 training filter, and the
+  RD-based training sample weight formula unchanged.
+- Keep HGBR hyperparameters (`squared_error`, `lr=0.07`, `max_leaf_nodes=127`,
+  `min_samples_leaf=100`, `l2=0.5`, `max_iter=500`, early stopping) unchanged.
+- Keep the calibrator architecture (convex blend of monotone isotonic + monotone
+  CDF, alpha selected on RD<=90 val under val-MAE budget with alpha=1.0
+  fallback) unchanged.
+- Keep `src/predict.py`'s public `predict(rows)` signature and its no-network,
+  deterministic contract.
+- Do not use `NbPlays`, `RatingDeviation`, or `Popularity` as inputs to the new
+  features (the RD-weight during training is not an input feature).
 
 ## Expected artifacts to update
-- `src/train.py` — fit both calibrators, run the constrained alpha
-  search, persist `iso`, `calib_pred_sorted`, `calib_true_sorted`,
-  `calib_alpha` into the model artifact.
-- `src/predict.py` — load the four calibrator objects and apply the
-  blended transform.
-- `models/hgbr.joblib` (or equivalent) — regenerated with the new
-  calibrator bundle.
+- `src/features.py` (new feature functions and additions to the feature dict).
+- `src/build_dataset.py` if needed to plumb any new fields through the
+  extraction pipeline; otherwise unchanged.
+- `models/hgbr.joblib` (retrained on the expanded feature vector).
+- `models/feature_names.json` (extended with the new feature names in the same
+  order as `src/features.py` emits them).
+- `models/meta.json` (new dim, refit calibrator alpha, refreshed val metrics).
+- `results/dataset.npz` (rebuilt feature matrix cache).
 - `results/metrics.json`, `results/metrics_seed1.json`,
-  `results/reproducibility.json` — regenerated with the blended
-  calibrator.
-- `results/preds_test.npz`, `results/preds_test_seed1.npz` — regenerated.
-- `REPORT.md` — short note in Sections 4.3 (calibration method) and
-  5.1/5.3 (updated numbers and selected alpha).
+  `results/reproducibility.json`, `results/preds_test.npz`,
+  `results/preds_test_seed1.npz`.
+- `figures/decile_calibration.png`, `figures/pred_vs_actual.png`,
+  `figures/residual_hist.png`, `figures/feature_importance.png` (regenerated).
+- `REPORT.md` — per-decile table, feature-importance table, and analysis
+  discussing whether tactical-density features close the D7-D9 gap.
 
 ## Success expectation
-Public `scoring/results.json` should show:
+The primary target on `scoring/results.json` is `middle_decile_calibration`,
+which must drop from 174.00 toward the <100 threshold. New tactical-density
+features give the booster direct signals to separate D7-D9 puzzles from D5-D6
+puzzles — the candidate-count and capture/check density features are precisely
+the axes that distinguish mid-Elo tactical complexity, and they are absent from
+the parent's 141-dim vector. Because the calibrator is refit on new val
+predictions, whatever residual mean-reversion remains will be corrected by the
+existing isotonic+CDF blend, whose alpha search is unchanged and whose fallback
+to alpha=1.0 prevents regression below pure-isotonic behavior.
 
-- `middle_decile_calibration` value moving from 215.31 toward the range
-  ~170–200, i.e. narrowing the 115-Elo gap by roughly 15–45 Elo. Full
-  closure to 100 is unlikely in one step (that would require widening
-  the raw booster predictions, a separate follow-up), but the direction
-  of movement should be clearly correct.
-- `spearman` unchanged (monotone transform), still ≥ 0.4.
-- `test_mae` should remain below 250 by construction of the val
-  constraint. Realistic landing zone: 235–248.
-- `overall_satisfied` most likely still `false` (calibration bottleneck
-  not fully closed), but the bottleneck gap narrows, `test_mae` and
-  `spearman` remain satisfied, and no property regresses relative to the
-  parent. This sets up a follow-up attempt to attack raw-prediction
-  spread (e.g., tail-emphasis sample weights in the booster).
+`spearman` should remain well above 0.4: monotone calibrators preserve rank
+order, and richer features can only increase raw booster discrimination.
+Expected to stay near or above the parent's 0.666.
+
+`test_mae` should remain below 250: the new features are strict additions with
+no change to loss, split, or hyperparameters, so val MAE should not degrade;
+if the calibrator alpha shifts to accommodate the wider raw spread, the
+existing `val_mae(alpha) <= max(val_mae(1.0), 220) + 5` budget still guards
+sealed MAE, and the parent's 5.7 Elo of sealed-MAE headroom is preserved by
+construction.
+
+Realistic outcome: sealed `middle_decile_calibration` drops materially from
+174.00 (target: <=130 conservative, <100 stretch); `test_mae` stays in the
+240-250 band; `spearman` stays near 0.666; `overall_satisfied` becomes true if
+the mid-decile gap crosses 100.
 
 
 
@@ -203,10 +257,20 @@ Current active tips (empty if none):
 
 > Tips below come from prior autoresearch attempts, including REJECTED ones. Treat them as hints, not ground truth. If a tip contradicts your reasoning or the current scoring rules, ignore it (comment_handler) or prune it (proposer).
 
-### T1 - insight [src/predict.py, src/train.py]
+### T2 - design [src/predict.py, src/train.py]
 _by comment_handler@ac978ac_
 
-For Lichess-puzzle rating with a tree-based booster and RD<90 filter, a CDF quantile-matching calibrator (searchsorted + interp on sorted val_pred vs sorted val_true) reduces middle-decile calibration gaps much more than IsotonicRegression, at a cost of ~14 Elo MAE. Isotonic minimizes squared error subject to monotonicity and compresses predictions in noisy val pockets; CDF matches empirical percentiles one-for-one and restores the full predicted spread. Both are monotone so Spearman is preserved exactly. On this task the swap moved internal middle-decile calibration 141.7 -> 79.0 while MAE went 249.2 -> 263.5.
+For calibrator-layer changes on this puzzle-rating pipeline: fit BOTH isotonic and CDF quantile-matching on the val slice and blend as alpha*iso + (1-alpha)*cdf. Pick alpha on val by argmin of a mid-decile-cal proxy (bins with mean-true in [1400,2000]) subject to val_mae(alpha) <= val_mae(alpha=1.0) + 5 Elo. This preserves the sealed-MAE headroom (val is ~16 Elo higher than sealed on this task) and lands alpha ~= 0.35, which restores enough tail spread to nearly close the mid-decile gap while keeping MAE well below target. A convex blend of two monotone calibrators is monotone, so Spearman is preserved exactly. Fallback to alpha=1.0 if constraint infeasible means no regression is possible relative to isotonic-only parent.
+
+### T4 - insight [src/train.py]
+_by comment_handler@e67156a_
+
+Tail-emphasis sample weights (interp 1.0->1.8->1.0 across [1700,2100,2400,2700] on y_train, multiplied into the RD weight) barely move the internal 50k-test middle-decile calibration (100.9 -> 102.2 with alpha=0.35 kept). The internal metric is dominated by D7's mean-true 1857 gap, which the tail weights only widen the raw preds for by ~2-4 Elo. The sealed slice restricts to bins with mean-true in [1400,2000] and RD<=80 (n=2000), so this trick's payoff — if any — shows up sealed but is nearly invisible internally. Val MAE budget still binds tightly (iso-only 247.87 -> 248.71); calibrator alpha stays at 0.35.
+
+### T5 - insight [src/train.py]
+_by comment_handler@e67156a_
+
+Filtering the val slice to RD<=80 for the alpha-search (to mimic the sealed scorer's rd_max=80) LOWERS iso-only val MAE from 247.87 to 232.79 Elo — a ~15 Elo drop, not a few. That TIGHTENS the mae budget (iso_mae+5) from ~253 to ~238, and pushes the smallest feasible alpha UP from 0.35 to 0.700 (more isotonic share, LESS CDF tail-spread). On both filtered val AND RD<=90 val, mid_dec_cal(alpha) is strictly monotone-increasing in alpha, so the picked alpha is the smallest feasible one — the MAE-budget boundary. The internal RD<=90 50k-test slice mid_dec_cal actually WORSENS with alpha=0.700 (100.9 -> 122.9), because that slice includes noisier RD>80 puzzles where the CDF widening at alpha=0.35 was helping. Whether this trade-off improves the sealed metric depends on whether the sealed slice's mid_cal at alpha=0.700 is smaller than at alpha=0.35; a-priori the filtered val proxy suggests it might not be, since on RD<=80 val the mid_cal ROSE from 152 (a=0.35) to 184 (a=0.70).
 
 
 ═══════════════════════════════════════════════════════════════════════════════════════════════

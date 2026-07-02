@@ -27,6 +27,17 @@ def run(seed: int, tag: str):
     return m
 
 
+def _pick(m):
+    L = m["lightgbm"]
+    return {
+        "test_mae": L["test_mae"],
+        "test_rmse": L["test_rmse"],
+        "test_spearman": L["test_spearman"],
+        "test_middle_decile_calibration": L["test_middle_decile_calibration"],
+        "calib_alpha": L["calib_alpha"],
+    }
+
+
 if __name__ == "__main__":
     # Seed 42 is already trained as the main model; run seed 1
     m1 = run(1, "seed1")
@@ -34,11 +45,13 @@ if __name__ == "__main__":
     with open("results/metrics.json") as f:
         m42 = json.load(f)
     print("Seed 42 test MAE:", m42["lightgbm"]["test_mae"])
-    delta = abs(m1["lightgbm"]["test_mae"] - m42["lightgbm"]["test_mae"])
-    print(f"ΔMAE: {delta:.2f}")
+    delta_mae = abs(m1["lightgbm"]["test_mae"] - m42["lightgbm"]["test_mae"])
+    delta_spear = abs(m1["lightgbm"]["test_spearman"] - m42["lightgbm"]["test_spearman"])
+    print(f"ΔMAE: {delta_mae:.2f}  ΔSpearman: {delta_spear:.4f}")
     with open("results/reproducibility.json", "w") as f:
         json.dump({
-            "seed42_test_mae": m42["lightgbm"]["test_mae"],
-            "seed1_test_mae": m1["lightgbm"]["test_mae"],
-            "delta_mae": delta,
+            "seed42": _pick(m42),
+            "seed1": _pick(m1),
+            "delta_mae": delta_mae,
+            "delta_spearman": delta_spear,
         }, f, indent=2)
