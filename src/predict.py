@@ -91,8 +91,21 @@ def predict(rows: list[dict]) -> list[float]:
                 v = 0.0
             X[i, j] = float(v)
 
-    raw = _MODEL["model"].predict(X)
-    preds = _MODEL["iso"].transform(raw)
+    raw = _MODEL["model"].predict(X).astype(np.float32)
+    iso_p = _MODEL["iso"].transform(raw).astype(np.float32)
+    pred_sorted = _MODEL["calib_pred_sorted"]
+    true_sorted = _MODEL["calib_true_sorted"]
+    alpha = float(_MODEL["calib_alpha"])
+    ranks = np.searchsorted(pred_sorted, raw, side="left") / float(
+        len(pred_sorted)
+    )
+    cdf_p = np.interp(
+        ranks,
+        np.linspace(0.0, 1.0, len(true_sorted), dtype=np.float32),
+        true_sorted,
+    ).astype(np.float32)
+    cdf_p = np.clip(cdf_p, float(true_sorted[0]), float(true_sorted[-1]))
+    preds = alpha * iso_p + (1.0 - alpha) * cdf_p
     preds = np.asarray(preds, dtype=np.float64)
     # Clip to plausible Elo range so no NaN/Inf can escape
     preds = np.clip(preds, 400.0, 3300.0)
