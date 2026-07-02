@@ -1,0 +1,9 @@
+# Exclude all data files (can be large)
+*
+
+# But include documentation and small samples
+!.gitignore
+!README.md
+!**/README.md
+!**/samples.json
+!**/samples/

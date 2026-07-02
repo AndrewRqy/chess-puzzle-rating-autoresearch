@@ -1,0 +1,86 @@
+{
+  "success": true,
+  "stages": {
+    "resource_finder": {
+      "success": true,
+      "completion_marker": "/workspaces/predicting_lichess_chess_puzzl_20260702_184615_ee687164/.resource_finder_complete",
+      "outputs": {
+        "literature_review": "/workspaces/predicting_lichess_chess_puzzl_20260702_184615_ee687164/literature_review.md",
+        "resources_catalog": "/workspaces/predicting_lichess_chess_puzzl_20260702_184615_ee687164/resources.md",
+        "papers_dir": "/workspaces/predicting_lichess_chess_puzzl_20260702_184615_ee687164/papers",
+        "datasets_dir": "/workspaces/predicting_lichess_chess_puzzl_20260702_184615_ee687164/datasets",
+        "code_dir": "/workspaces/predicting_lichess_chess_puzzl_20260702_184615_ee687164/code"
+      },
+      "log_file": "/workspaces/predicting_lichess_chess_puzzl_20260702_184615_ee687164/logs/resource_finder_claude.log",
+      "transcript_file": "/workspaces/predicting_lichess_chess_puzzl_20260702_184615_ee687164/logs/resource_finder_claude_transcript.jsonl",
+      "elapsed_time": 1536.5329060554504
+    },
+    "rule_maker": {
+      "success": true,
+      "outputs": {
+        "eval_script": "/workspaces/predicting_lichess_chess_puzzl_20260702_184615_ee687164/scoring/eval.py",
+        "targets": "/workspaces/predicting_lichess_chess_puzzl_20260702_184615_ee687164/scoring/targets.json",
+        "interface": "/workspaces/predicting_lichess_chess_puzzl_20260702_184615_ee687164/scoring/interface.md",
+        "rationale_log": "/workspaces/predicting_lichess_chess_puzzl_20260702_184615_ee687164/scoring/rule_maker_log.md"
+      },
+      "issues": [],
+      "log_file": "/workspaces/predicting_lichess_chess_puzzl_20260702_184615_ee687164/logs/rule_maker_claude.log",
+      "transcript_file": "/workspaces/predicting_lichess_chess_puzzl_20260702_184615_ee687164/logs/rule_maker_claude_transcript.jsonl",
+      "elapsed_time": 273.95316457748413
+    },
+    "experiment_runner": {
+      "success": true,
+      "return_code": 0,
+      "elapsed_time": 2586.1821796894073,
+      "log_file": "/workspaces/predicting_lichess_chess_puzzl_20260702_184615_ee687164/logs/execution_claude.log",
+      "transcript_file": "/workspaces/predicting_lichess_chess_puzzl_20260702_184615_ee687164/logs/execution_claude_transcript.jsonl"
+    },
+    "scorer": {
+      "success": true,
+      "return_code": 0,
+      "results": {
+        "properties": {
+          "test_mae": {
+            "value": 232.1626466369629,
+            "direction": "min",
+            "target": 250.0,
+            "satisfied": true,
+            "gap": -17.837353363037096
+          },
+          "spearman": {
+            "value": 0.6654976996324616,
+            "direction": "max",
+            "target": 0.4,
+            "satisfied": true,
+            "gap": 0.2654976996324616
+          },
+          "middle_decile_calibration": {
+            "value": 215.30704722684982,
+            "direction": "min",
+            "target": 100.0,
+            "satisfied": false,
+            "gap": 115.30704722684982
+          }
+        },
+        "overall_satisfied": false,
+        "bottleneck": "middle_decile_calibration",
+        "eval_meta": {
+          "eval_version": 1,
+          "generated_by": "rule_maker",
+          "n_test": 2000,
+          "rd_max": 80,
+          "middle_elo_range": [
+            1400,
+            2000
+          ]
+        }
+      },
+      "results_path": "/workspaces/predicting_lichess_chess_puzzl_20260702_184615_ee687164/scoring/results.json",
+      "log_path": "/workspaces/predicting_lichess_chess_puzzl_20260702_184615_ee687164/scoring/eval_log.txt",
+      "elapsed_time": 6.336171865463257,
+      "error": null
+    }
+  },
+  "work_dir": "/workspaces/predicting_lichess_chess_puzzl_20260702_184615_ee687164",
+  "mode": "scored"
+}

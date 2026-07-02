@@ -1,0 +1,16 @@
+{
+  "seed42": {
+    "test_mae": 249.23779296875,
+    "test_rmse": 313.5500793457031,
+    "test_spearman": 0.740893492731834,
+    "test_middle_decile_calibration": 141.65625
+  },
+  "seed1": {
+    "test_mae": 249.14068603515625,
+    "test_rmse": 313.5319519042969,
+    "test_spearman": 0.7408500399423813,
+    "test_middle_decile_calibration": 141.119873046875
+  },
+  "delta_mae": 0.09710693359375,
+  "delta_spearman": 4.3452789452724794e-05
+}
