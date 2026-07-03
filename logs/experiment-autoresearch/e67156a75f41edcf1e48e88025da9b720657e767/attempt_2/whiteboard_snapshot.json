@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "next_id_num": 6,
+  "saved_at": 1783024858.0388155,
+  "tips": [
+    {
+      "id": "T1",
+      "category": "insight",
+      "content": "For Lichess-puzzle rating with a tree-based booster and RD<90 filter, a CDF quantile-matching calibrator (searchsorted + interp on sorted val_pred vs sorted val_true) reduces middle-decile calibration gaps much more than IsotonicRegression, at a cost of ~14 Elo MAE. Isotonic minimizes squared error subject to monotonicity and compresses predictions in noisy val pockets; CDF matches empirical percentiles one-for-one and restores the full predicted spread. Both are monotone so Spearman is preserved exactly. On this task the swap moved internal middle-decile calibration 141.7 -> 79.0 while MAE went 249.2 -> 263.5.",
+      "status": "cleared",
+      "author": "comment_handler@ac978ac",
+      "written_at": 1783022921.2288194,
+      "affects": [
+        "src/predict.py",
+        "src/train.py"
+      ],
+      "cleared_by": "comment_handler@ac978ac",
+      "cleared_at": 1783023425.9575768,
+      "pruned_reason": "",
+      "pruned_at": 0.0
+    },
+    {
+      "id": "T2",
+      "category": "design",
+      "content": "For calibrator-layer changes on this puzzle-rating pipeline: fit BOTH isotonic and CDF quantile-matching on the val slice and blend as alpha*iso + (1-alpha)*cdf. Pick alpha on val by argmin of a mid-decile-cal proxy (bins with mean-true in [1400,2000]) subject to val_mae(alpha) <= val_mae(alpha=1.0) + 5 Elo. This preserves the sealed-MAE headroom (val is ~16 Elo higher than sealed on this task) and lands alpha ~= 0.35, which restores enough tail spread to nearly close the mid-decile gap while keeping MAE well below target. A convex blend of two monotone calibrators is monotone, so Spearman is preserved exactly. Fallback to alpha=1.0 if constraint infeasible means no regression is possible relative to isotonic-only parent.",
+      "status": "active",
+      "author": "comment_handler@ac978ac",
+      "written_at": 1783023422.2354739,
+      "affects": [
+        "src/predict.py",
+        "src/train.py"
+      ],
+      "cleared_by": "",
+      "cleared_at": 0.0,
+      "pruned_reason": "",
+      "pruned_at": 0.0
+    },
+    {
+      "id": "T3",
+      "category": "insight",
+      "content": "The bottleneck is now raw-booster spread, not the calibrator. With alpha=0.35 the calibrator has restored most of the achievable tail spread (D9 mean-pred rose 1908 -> 2013 vs. mean-true 2341). Further mid-decile calibration gains require widening RAW booster predictions in the [1800, 2200] range. Promising next attempts: tail-emphasis sample weights (upweight training rows with y_true>1900 by e.g. 1.5-2x), a two-head quantile regressor, or a targeted feature set for hard puzzles (e.g. Stockfish eval drop). Simply pushing alpha lower breaks the val_mae budget and blows sealed-MAE past 250.",
+      "status": "cleared",
+      "author": "comment_handler@ac978ac",
+      "written_at": 1783023434.1353855,
+      "affects": [
+        "src/train.py"
+      ],
+      "cleared_by": "comment_handler@e67156a",
+      "cleared_at": 1783024242.5860977,
+      "pruned_reason": "",
+      "pruned_at": 0.0
+    },
+    {
+      "id": "T4",
+      "category": "insight",
+      "content": "Tail-emphasis sample weights (interp 1.0->1.8->1.0 across [1700,2100,2400,2700] on y_train, multiplied into the RD weight) barely move the internal 50k-test middle-decile calibration (100.9 -> 102.2 with alpha=0.35 kept). The internal metric is dominated by D7's mean-true 1857 gap, which the tail weights only widen the raw preds for by ~2-4 Elo. The sealed slice restricts to bins with mean-true in [1400,2000] and RD<=80 (n=2000), so this trick's payoff \u2014 if any \u2014 shows up sealed but is nearly invisible internally. Val MAE budget still binds tightly (iso-only 247.87 -> 248.71); calibrator alpha stays at 0.35.",
+      "status": "active",
+      "author": "comment_handler@e67156a",
+      "written_at": 1783024252.0485702,
+      "affects": [
+        "src/train.py"
+      ],
+      "cleared_by": "",
+      "cleared_at": 0.0,
+      "pruned_reason": "",
+      "pruned_at": 0.0
+    },
+    {
+      "id": "T5",
+      "category": "insight",
+      "content": "Filtering the val slice to RD<=80 for the alpha-search (to mimic the sealed scorer's rd_max=80) LOWERS iso-only val MAE from 247.87 to 232.79 Elo \u2014 a ~15 Elo drop, not a few. That TIGHTENS the mae budget (iso_mae+5) from ~253 to ~238, and pushes the smallest feasible alpha UP from 0.35 to 0.700 (more isotonic share, LESS CDF tail-spread). On both filtered val AND RD<=90 val, mid_dec_cal(alpha) is strictly monotone-increasing in alpha, so the picked alpha is the smallest feasible one \u2014 the MAE-budget boundary. The internal RD<=90 50k-test slice mid_dec_cal actually WORSENS with alpha=0.700 (100.9 -> 122.9), because that slice includes noisier RD>80 puzzles where the CDF widening at alpha=0.35 was helping. Whether this trade-off improves the sealed metric depends on whether the sealed slice's mid_cal at alpha=0.700 is smaller than at alpha=0.35; a-priori the filtered val proxy suggests it might not be, since on RD<=80 val the mid_cal ROSE from 152 (a=0.35) to 184 (a=0.70).",
+      "status": "active",
+      "author": "comment_handler@e67156a",
+      "written_at": 1783024858.03869,
+      "affects": [
+        "src/train.py"
+      ],
+      "cleared_by": "",
+      "cleared_at": 0.0,
+      "pruned_reason": "",
+      "pruned_at": 0.0
+    }
+  ]
+}

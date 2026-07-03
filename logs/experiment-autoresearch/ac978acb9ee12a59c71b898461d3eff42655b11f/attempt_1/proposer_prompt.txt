@@ -1,0 +1,403 @@
+You are the AutoResearch proposal generator for NeuriCo.
+
+Your job is to write one structured proposal for the next experiment-stage
+attempt. You are a planner only. Do not modify the research workspace.
+
+═══════════════════════════════════════════════════════════════════════════════
+                              WORKSPACE
+═══════════════════════════════════════════════════════════════════════════════
+
+Research title: Predicting Lichess Chess-Puzzle Difficulty Ratings from Position
+Domain: machine_learningWorkspace: /workspaces/predicting_lichess_chess_puzzl_20260702_184615_ee687164
+Parent node: ac978acb9ee12a59c71b898461d3eff42655b11f
+Attempt directory: /workspaces/predicting_lichess_chess_puzzl_20260702_184615_ee687164/logs/experiment-autoresearch/ac978acb9ee12a59c71b898461d3eff42655b11f/attempt_1
+Proposal output path: /workspaces/predicting_lichess_chess_puzzl_20260702_184615_ee687164/logs/experiment-autoresearch/ac978acb9ee12a59c71b898461d3eff42655b11f/attempt_1/proposal.md
+
+═══════════════════════════════════════════════════════════════════════════════
+                              BOUNDARIES
+═══════════════════════════════════════════════════════════════════════════════
+
+You must write exactly one file: /workspaces/predicting_lichess_chess_puzzl_20260702_184615_ee687164/logs/experiment-autoresearch/ac978acb9ee12a59c71b898461d3eff42655b11f/attempt_1/proposal.md
+
+Do not edit files in the research workspace.
+Do not rerun resource finding.
+Do not run the scorer.
+Do not read, mention, modify, or infer from hidden scoring internals:
+- scoring/eval.py
+- scoring/targets.json
+- scoring/rule_maker_log.md
+- .scoring_sealed/
+
+The existing NeuriCo comment handler will inspect and edit source files later.
+Your proposal should tell comment mode what targeted experiment-stage change to
+try next.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                              PUBLIC CONTEXT
+═══════════════════════════════════════════════════════════════════════════════
+
+The context below was curated by AutoResearch. It contains only public protocol,
+public score output, public reports/artifacts, current-node attempt history, and
+a src/ file tree. The src/ listing intentionally contains no source contents.
+
+```json
+{
+  "attempt_history": [],
+  "planning_md": "# Research Plan \u2014 Predicting Lichess Puzzle Difficulty\n\n## Motivation \u0026 Novelty Assessment\n\n### Why This Research Matters\nPuzzle-difficulty prediction is a well-calibrated, continuous regression signal on a dataset of 6M+ positions. Solving it reliably enables ex-ante puzzle curation, personalized training, and adaptive tutors without waiting for user-attempt logs to establish an empirical rating.\n\n### Gap in Existing Work\nThe literature is dominated by two extremes: pure transformer regressors (GlickFormer, MAE 217; requires GPU + days of training) and shallow hand-feature baselines (Aimchess). No compact CPU-only gradient-boosted-tree model with rich tactical features has a public reproducible reference.\n\n### Our Novel Contribution\nA compact LightGBM regressor operating on shallow-yet-tactical features derived from FEN + solution sequence, plus theme signals when available. Goal: beat the global-mean baseline (~MAE 430) by a wide margin under strict CPU-only constraints, targeting MAE \u003c 250 on the sealed test slice.\n\n### Experiment Justification\n- Baseline (global mean): sanity ceiling; required to demonstrate model added value.\n- Per-theme mean: cheap heuristic; establishes that themes carry rating signal.\n- Feature-engineered LightGBM (main): tests hypothesis that shallow tactical features (material, mobility, forcing-move counts) plus theme signals suffice to predict rating on CPU-only compute.\n- Two seeds for reproducibility check.\n\n## Research Question\nCan a compact, CPU-only regressor built on shallow tactical features and theme signals predict Lichess puzzle ratings with test MAE \u003c 250 Elo and Spearman \u03c1 \u003e 0.4?\n\n## Methodology\n\n### Approach\nFeature-engineered gradient-boosting on 200\u2013400k puzzles subsampled from the 6M-row corpus, held-out excluding a hash-based validation slice, and finalized as a `predict(rows)` module.\n\n### Experimental Steps\n1. Load all 3 parquet shards; sample 400k rows with `RatingDeviation \u003c 90` for label quality.\n2. Split train/val/test 70/15/15 by hash of PuzzleId (to mimic the sealed-test rule).\n3. Extract features:\n   - Position: piece counts by type/color, material balance, side-to-move, castling rights.\n   - Solution sequence: length, number of checks, captures, promotions, quiet moves, distance travelled, mate-in-N indicator, ending square activity.\n   - Themes: multi-hot encoding of the most common themes (top 30).\n   - Opening tag: presence indicator.\n4. Baseline 1: global mean.\n5. Baseline 2: per-theme mean (average rating over each theme intersected).\n6. Main: LightGBM regressor (~800 trees, depth 8). Train with Huber loss for robustness to RD-noise.\n7. Evaluate MAE, RMSE, Spearman, per-decile calibration on held-out test split.\n8. Robustness: retrain with seed=1; report \u0394MAE.\n\n### Baselines\n- Global mean rating.\n- Per-theme mean rating.\n\n### Evaluation Metrics\n- **MAE** (primary): interpretable, matches literature.\n- **RMSE** (secondary): compatible with IEEE BigData Cup metric.\n- **Spearman \u03c1**: rank-quality check.\n- **Middle-decile calibration**: |mean(pred) - mean(true)| on rating bins 1400-2000.\n\n### Statistical Analysis Plan\nTwo-seed rerun (seed 42, 1) to report \u0394MAE stability. Bootstrap 1000 samples of test MAE for a confidence interval.\n\n## Expected Outcomes\n- Main model MAE 200-240 (informed by GlickFormer transformer at MAE 217 and BigData Cup GBDTs at ~205-215).\n- Spearman \u03c1 \u003e 0.7.\n- Robust to seed shifts within \u00b110 MAE.\n\n## Timeline\n- Phase 1 planning: 10 min\n- Phase 2 data load + feature build: 40 min\n- Phase 3 baseline + training + eval: 60 min\n- Phase 4 predict.py packaging: 20 min\n- Phase 5 analysis + figs: 30 min\n- Phase 6 report: 30 min\n\n## Potential Challenges\n- Feature extraction on 400k puzzles must complete in \u003c20 min \u2192 keep feature functions pure-Python + numpy; parallelize with joblib if needed.\n- LightGBM can overfit to themes if we\u0027re not careful; use RD-clipped labels and cap tree depth.\n- Model artifact must load quickly at import time; store as small pickled sklearn/lightgbm booster.\n- Themes may be missing at inference; must degrade gracefully.\n\n## Success Criteria\n- Test MAE \u003c 250 (hypothesis threshold).\n- Spearman \u03c1 \u003e 0.4.\n- Middle-decile calibration error \u003c 100.\n- Cross-seed \u0394MAE \u003c 20.\n\n## Notes on Scoring Protocol\n- `src/predict.py` must expose `predict(rows: list[dict]) -\u003e list[float]`.\n- Do not use `NbPlays`, `RatingDeviation`, `Popularity` as inputs.\n- Model must load at import time or lazily on first call from files under `src/` or `models/`.\n- Must be deterministic; no randomness at inference.\n- Handle missing/empty `Themes` gracefully.\n",
+  "report_md": "# Predicting Lichess Puzzle Difficulty from Position\n\n## 1. Executive Summary\n\nWe predict the empirical Glicko-2 difficulty rating of a Lichess chess\npuzzle from its position and solution using a compact, CPU-only pipeline:\n141 shallow tactical + theme features fed into a gradient-boosted\nregression tree with a squared-error loss, plus a post-hoc isotonic\ncalibrator fit on a held-out validation slice.\n\nOn a 50 000-puzzle held-out test slice:\n\n- **Test MAE = 249.2 Elo** \u2014 beats the global-mean baseline (389.6) by\n  36% and the per-theme-mean baseline (333.9) by 25%, and satisfies the\n  research hypothesis\u0027s threshold of \u003c 250.\n- **Spearman rank correlation = 0.741** \u2014 well above the \u03c1 \u003e 0.4 target.\n- **Reproducible across seeds**: \u0394MAE = 0.10 between seed 42 and seed 1\n  (target \u003c 20).\n- Practical implication: Lichess-style rating deviations for puzzles\n  with more attempts saturate at ~75 Elo, so a bulk of the residual\n  ~250 Elo of MAE is dominated by inherent label noise on rare and\n  extreme-difficulty puzzles rather than model capacity.\n\n## 2. Research Question \u0026 Motivation\n\n**Question**: Can a model that combines shallow tactical features with\nlearned representations predict the puzzle\u0027s Lichess rating with test\nMAE \u003c 250, using only position-level information (FEN + solution\nsequence)?\n\n**Why it matters**: A cheap ex-ante difficulty estimator lets puzzle\ncurators, tutors, and adaptive-training UIs rank a fresh puzzle before\nits empirical rating stabilizes (which requires hundreds of user\nattempts). It\u0027s also a testbed for how much of \"tactical difficulty\" is\ncaptured by handcrafted signals vs. learned representations.\n\n**Gap in existing work** (see `literature_review.md`): the peer-reviewed\nliterature is dominated by two extremes \u2014 heavy transformers over\nsequences of positions (GlickFormer, MAE 217 on 4.2M puzzles, GPU-only)\nand shallow rules-of-thumb (Aimchess \"median rating by move count\").\nNo public, CPU-only gradient-boosting baseline with a rich feature set\nexists as a reference. This work provides one.\n\n## 3. Data Construction\n\n### 3.1 Source and volume\n- **Dataset**: Lichess/chess-puzzles on HuggingFace, downloaded as three\n  parquet shards totaling 6 014 381 rows.\n- **Filter**: kept only puzzles with `RatingDeviation \u003c 90` (4 583 346\n  rows survive). RD \u2265 90 indicates the empirical Elo is still unstable.\n\n### 3.2 Splits\nHash-bucket splits on `PuzzleId` (deterministic; safer than a random\nsplit because it avoids test-set overlap when re-running):\n\n| Bucket | Split | Fraction | Sampled |\n|:------:|:-----:|:--------:|:-------:|\n| 0-4    | reserved (mimics sealed scorer holdout) | 5% | \u2014 |\n| 5-9    | internal test | 5% | 50 000 |\n| 10-14  | internal validation | 5% | 50 000 |\n| 15-99  | training | 85% | 300 000 |\n\nThe 0-4 bucket is dropped from training entirely so we never accidentally\ntrain on puzzles the sealed scorer might sample.\n\n### 3.3 Feature vector (141 dims)\nFeature extraction (`src/features.py`) uses `python-chess` only.\n\n| Group | Features |\n|-------|----------|\n| Static position (pre setup move) | side-to-move, per-type per-color piece counts, material balance, castling rights, king-ring attackers (both sides), mobility of side-to-move, in-check flag, halfmove/fullmove clocks, king distance, most-advanced pawn |\n| Static position (post setup move) | same 31 features on the puzzle-start position |\n| Solution sequence | `sol_len`, solver-move / opponent-move counts, checks, captures, promotions, underpromotions, en-passants, castles, solver-only checks \u0026 captures, quiet-move count and ratio, check ratio, capture ratio, max \u0026 mean move distance, spatial spread of target squares, `ends_in_mate` flag |\n| Themes | Multi-hot over a pinned vocabulary of the 52 most common Lichess themes, plus `theme_missing` and `theme_count` |\n\nThemes are treated as **optional** \u2014 the scorer explicitly warns\nproduction inputs may drop them, and the pipeline degrades gracefully\n(`theme_missing = 1` when the list is empty or None).\n\n### 3.4 Excluded columns (label leakage)\nAs instructed by `scoring/interface.md` and `literature_review.md`,\n`NbPlays`, `RatingDeviation`, `Popularity`, and the true `Rating` are\nexcluded from the feature vector.\n\n## 4. Methodology\n\n### 4.1 Baselines\n1. **Global mean** \u2014 predict `mean(y_train)` for every test row.\n2. **Per-theme mean** \u2014 for each puzzle, average the per-theme mean\n   ratings of its intersected training themes (with a `theme_missing`\n   fallback to the global mean).\n\n### 4.2 Main model\n- `sklearn.ensemble.HistGradientBoostingRegressor` (equivalent to\n  LightGBM\u0027s algorithm, but ships with sklearn\u0027s own libgomp, avoiding\n  system dependencies).\n- Loss: `squared_error`. Absolute-error loss trained faster to a lower\n  raw MAE but collapsed the predictions toward the median (worse\n  per-decile calibration); squared error keeps the distributional\n  spread of predictions closer to the truth.\n- Hyperparameters: `learning_rate=0.07`, `max_leaf_nodes=127`,\n  `min_samples_leaf=100`, `l2_regularization=0.5`, `max_iter=500`.\n- Early stopping via sklearn\u0027s internal 10% validation slice\n  (`n_iter_no_change=20`, `tol=1e-3`).\n- Sample weights: `1 / (1 + RD/40)` \u2014 down-weights noisy-rating puzzles\n  during training. Motivated by the uncertainty-aware training recipe\n  from the GlickFormer paper.\n\n### 4.3 Post-hoc calibration\nThe learned model regresses tails toward the mean (a systemic property\nof squared-error tree ensembles under high label noise). To correct\nthis we fit a monotonic `IsotonicRegression` on\n`(val_prediction, val_true_rating)` pairs \u2014 the val slice is completely\nheld out from the boosted regressor. Isotonic bumps mid-decile\ncalibration gaps down substantially (see Section 5.3) without hurting\nMAE.\n\n### 4.4 Evaluation metrics\n- **MAE** (primary) \u2014 Elo points.\n- **RMSE** \u2014 comparable to IEEE BigData Cup metric.\n- **Spearman \u03c1** \u2014 rank correlation.\n- **Per-decile calibration** \u2014 mean predicted vs. mean actual rating in\n  each true-rating decile.\n- **Middle-decile calibration** \u2014 max |gap| among bins whose mean-true\n  rating lies in [1400, 2000].\n\n### 4.5 Reproducibility check\nRetrain identical config with `seed=1`; compare test MAE.\n\n## 5. Results\n\n### 5.1 Headline numbers (seed 42, 50k held-out test rows)\n\n| Method | MAE \u2193 | RMSE \u2193 | Spearman \u03c1 \u2191 | Mid-decile cal. \u2193 |\n|--------|------:|-------:|-------------:|------------------:|\n| Global-mean baseline | 389.6 | 467.6 | \u2014 (constant) | \u2014 |\n| Per-theme-mean baseline | 333.9 | 403.3 | 0.586 | \u2014 |\n| HGBR + isotonic (ours) | **249.2** | **313.5** | **0.741** | **141.7** |\n| (target from hypothesis) | \u003c 250 | \u2014 | \u003e 0.4 | \u003c 100 |\n| GlickFormer, ChessFormer, MAE ~218 (lit) | ~218 | \u2014 | \u2014 | \u2014 |\n\nBoth primary success criteria (MAE, Spearman) are met. The middle-decile\ncalibration criterion of \u003c 100 is not met: our best is 141.7, driven by\nthe harder-tail bins (see 5.3).\n\n### 5.2 Cross-seed reproducibility\n\n|         | seed 42 | seed 1 | \u0394 |\n|:--------|--------:|-------:|--:|\n| Test MAE | 249.24 | 249.14 | 0.10 |\n| Test RMSE | 313.55 | 313.53 | 0.02 |\n| Test Spearman | 0.7409 | 0.7409 | 4e-05 |\n| Middle-decile cal | 141.66 | 141.12 | 0.54 |\n\nWell under the 20-Elo target.\n\n### 5.3 Per-decile calibration (seed 42)\n\n| Bin | Mean-true | Mean-pred | \\|gap\\| |\n|:---:|----------:|----------:|--------:|\n| D0  |  775 | 1029 | 253.8 |\n| D1  | 1000 | 1208 | 207.6 |\n| D2  | 1140 | 1313 | 173.0 |\n| D3  | 1269 | 1418 | 148.8 |\n| D4  | 1409 | 1499 |  89.4 |\n| D5  | 1550 | 1576 |  25.9 |\n| D6  | 1691 | 1646 |  45.1 |\n| D7  | 1857 | 1715 | 141.7 |\n| D8  | 2045 | 1796 | 248.8 |\n| D9  | 2341 | 1908 | 433.0 |\n\nMiddle deciles (D4-D6) are calibrated within ~90 Elo; the model\nunder-predicts the very-hard tail (D7-D9) and over-predicts the\nvery-easy tail (D0-D2). Isotonic calibration mitigates this but cannot\nfully compensate because the model\u0027s spread of raw predictions is\nnarrower than the truth\u0027s \u2014 a fundamental capacity limit of the\nfeature set.\n\nSee `figures/decile_calibration.png` for a visualization.\n\n### 5.4 Feature importance (correlation-based proxy, top 15)\n\n| Rank | Feature | |\u03c1| with y |\n|:----:|---------|-----------:|\n| 1 | `sol_len` | 0.48 |\n| 1 | `sol_opp_moves` | 0.48 |\n| 1 | `sol_solver_moves` | 0.48 |\n| 4 | `sol_check_ratio` | 0.46 |\n| 5 | `sol_ends_mate` | 0.43 |\n| 5 | `theme_mate` | 0.43 |\n| 7 | `sol_to_rank_range` | 0.37 |\n| 8 | `theme_mateIn1` | 0.37 |\n| 8 | `theme_oneMove` | 0.37 |\n| 10 | `sol_quiet` | 0.33 |\n| 11 | `sol_to_file_range` | 0.32 |\n| 12 | `theme_veryLong` | 0.27 |\n| 13 | `theme_long` | 0.26 |\n| 14 | `sol_mean_move_dist` | 0.25 |\n| 15 | `sol_captures` | 0.24 |\n\nNote: we use pairwise |Pearson \u03c1| between each feature and the true\nrating as a fast proxy for feature importance because sklearn\u0027s HGBR\ndoes not expose a native gain-based importance. This underestimates\nfeatures that matter only in interactions (e.g., material balance\ncombined with themes), but the ranking still highlights that\nsolution-length and mate/quiet-move signals carry the strongest\nfirst-order signal for puzzle difficulty. See\n`figures/feature_importance.png`.\n\n### 5.5 Visualizations\n\n- `figures/pred_vs_actual.png` \u2014 scatter of predictions against truth\n  (subsampled to 20k points); shows the characteristic mean-reversion\n  fan.\n- `figures/residual_hist.png` \u2014 residual histogram, centered near zero\n  (mean error 0.5 Elo) but with heavy tails.\n- `figures/decile_calibration.png` \u2014 grouped bar of mean-true vs\n  mean-pred per decile.\n- `figures/feature_importance.png` \u2014 top-20 correlation-proxy\n  importances.\n\n## 6. Analysis \u0026 Discussion\n\n### 6.1 Answering the research question\nThe hypothesis \u2014 that shallow tactical + theme features are enough\nto reach MAE \u003c 250 \u2014 is confirmed. Solution-length, mate-ending\nindicators, and simple check/capture ratios explain most of the\nfirst-order variance. This is consistent with the observation from\nthe IEEE BigData 2024 Cup that GBDT-on-features approaches place\ncompetitively even against transformer backbones (the 3rd-place team\u0027s\nLightGBM + Maia setup).\n\n### 6.2 What surprised us\n- **Solution-length dominates.** Number of moves (`sol_len`,\n  `sol_solver_moves`, `sol_opp_moves`) all carry near-identical\n  correlation ~0.48 with rating and account for most of the top-tier\n  gain. This is not surprising in retrospect but is stronger than the\n  literature emphasizes \u2014 many papers focus on positional features.\n- **MAE-optimizing loss collapses predictions.** A first pass with\n  `loss=absolute_error` gave MAE 246.8 (lower than squared-error\u0027s\n  247.5-249) but per-decile calibration was catastrophic (max gap\n  436 at D9). Squared-error is the better final choice.\n- **Isotonic calibration is nearly free.** Fitting isotonic on val\n  and applying to test barely moves MAE (~\u003c1 Elo) but pulls\n  middle-decile gap from ~155 to ~142.\n\n### 6.3 Comparison to literature\n- GlickFormer transformer (SOTA in peer-reviewed lit): **MAE 217.7**\n  on 4.2M puzzles.\n- ChessFormer baseline in same paper: MAE 227.0.\n- Our shallow-feature HGBR: **MAE 249.2** on 300k puzzles / 50k test.\n\nThe ~30-Elo gap to GlickFormer represents the ceiling of positional\ninformation the transformer captures that our engineered features\nmiss (piece placement patterns, tactical motifs implicit in the\nboard tensor, etc.). Closing this gap likely requires either a\nlearned position encoder or engine-derived features (Maia bracket\nconsistency, Stockfish evaluation drop) \u2014 see Section 7.\n\n### 6.4 Why middle-decile calibration falls short\nIsotonic can only rescale monotonically. When the model\u0027s raw\npredictions have narrower spread than the truth, isotonic pulls tails\noutward but its ability is bounded by the value range of the raw\npredictions themselves. The residual gap of ~140 Elo at D7 reflects\nthe model\u0027s incompressibility \u2014 hard puzzles look, in feature space,\ntoo similar to medium puzzles for the model to separate confidently.\n\n## 7. Limitations\n\n1. **Position representation is coarse.** We use counts and\n   presence indicators; a CNN or transformer over the 12-plane piece\n   grid could pick up positional motifs (batteries, weak squares) that\n   our features miss.\n2. **No engine features.** Maia/Leela/Stockfish signals were left out\n   for CPU-time reasons; the literature suggests they close a large\n   share of the gap to SOTA.\n3. **Theme reliance.** Themes are treated as optional (`theme_missing`\n   fallback), but ~15% of the model\u0027s importance is theme-derived. On\n   production rows where themes are stripped, expect a modest\n   degradation (MAE probably in the 260s).\n4. **Sample size cap at 300k train / 50k test.** GlickFormer used\n   4.2M puzzles; scaling to a million would likely narrow the gap.\n5. **Held-out slice is hash-based but not identical to sealed test.**\n   The scorer uses a different hash constant; our 5-99-bucket sample\n   is a proxy, not the exact same puzzles.\n\n## 8. Conclusions \u0026 Next Steps\n\nWe built a CPU-only, 141-feature gradient-boosted regressor that\npredicts Lichess puzzle rating with test MAE 249 Elo and Spearman \u03c1\n0.74, meeting both primary success criteria of the research\nhypothesis. Cross-seed reproducibility is essentially exact.\nMiddle-decile calibration remains ~40 Elo above the ambitious \u003c 100\nstretch target due to the model\u0027s tail-compression behavior.\n\nRecommended next iterations:\n1. **Add Maia-bracket features** \u2014 probe Maia at each Elo band on the\n   puzzle FEN; the lowest bracket at which Maia matches the puzzle\u0027s\n   best move should saturate the mid-difficulty signal we currently\n   miss.\n2. **Stockfish evaluation drop** \u2014 |eval(post-setup) \u2212 eval(pre-setup)|\n   quantifies the \"obviousness\" of the setup mistake and correlates\n   with difficulty.\n3. **A small CNN over 16-plane piece tensors** \u2014 feature-concat with\n   the current shallow features; RatingNet-style but shallow enough for\n   CPU training.\n4. **Rating-conditioned quantile heads** \u2014 a two-head model that\n   predicts both mean and a per-example variance would let us reason\n   about difficulty confidence directly.\n\nOpen question: how much of the residual 30 Elo gap to GlickFormer is\ninherent noise (RatingDeviation floor on rare tail puzzles) vs. missing\nfeatures? The RD-weighted training helps but doesn\u0027t quantify.\n\n## References\n\n- Mi\u0142osz \u0026 Kapusta, \"Predicting Chess Puzzle Difficulty with Transformers\"\n  (GlickFormer), arXiv:2410.11078 (2024).\n- Omori \u0026 Tadepalli, \"Chess Rating Estimation from Moves and Clock Times\"\n  (RatingNet / CNN-BiLSTM), arXiv:2409.11506 (2024).\n- Monroe \u0026 LC0 Team, \"Mastering Chess with a Transformer Model\"\n  (ChessFormer + Smolgen), arXiv:2409.12272 (2024).\n- McIlroy-Young et al., \"Aligning Superhuman AI with Human Behavior\"\n  (Maia), arXiv:2006.01855 (2020).\n- Zhang, Jacob et al., \"Maia-2: Unified Model for Human-AI Alignment\",\n  arXiv:2409.20553 (2024).\n- Lichess Puzzle Database (CC0): huggingface.co/datasets/Lichess/chess-puzzles.\n- python-chess: github.com/niklasf/python-chess (used for FEN parsing\n  and legal-move generation).\n- Full literature review: `literature_review.md`.\n\n## Appendix \u2014 file locations\n\n| Artifact | Path |\n|----------|------|\n| Trained model + isotonic | `models/hgbr.joblib` |\n| Feature name list (frozen) | `models/feature_names.json` |\n| Model meta | `models/meta.json` |\n| Metrics (seed 42) | `results/metrics.json` |\n| Metrics (seed 1) | `results/metrics_seed1.json` |\n| Reproducibility summary | `results/reproducibility.json` |\n| Test predictions (seed 42) | `results/preds_test.npz` |\n| Feature matrix cache | `results/dataset.npz` |\n| Scoring entry point | `src/predict.py` |\n| Feature extractor | `src/features.py` |\n| Training script | `src/train.py` |\n| Analysis / plots | `src/analyze.py` |\n| Dataset builder | `src/build_dataset.py` |\n",
+  "results_metrics_json": {
+    "baseline_global_mean": {
+      "test_mae": 389.64495849609375,
+      "test_middle_decile_calibration": 346.1981201171875,
+      "test_rmse": 467.5946044921875,
+      "test_spearman": NaN
+    },
+    "baseline_theme_mean": {
+      "test_mae": 333.9146728515625,
+      "test_middle_decile_calibration": 284.932861328125,
+      "test_rmse": 403.34521484375,
+      "test_spearman": 0.5859530558834762
+    },
+    "lightgbm": {
+      "best_iter": 500,
+      "test_calibration_by_bin": [
+        {
+          "abs_gap": 253.7691650390625,
+          "bin": 0,
+          "mean_pred": 1029.0635986328125,
+          "mean_true": 775.29443359375,
+          "n": 4989
+        },
+        {
+          "abs_gap": 207.60528564453125,
+          "bin": 1,
+          "mean_pred": 1207.5279541015625,
+          "mean_true": 999.9226684570312,
+          "n": 5006
+        },
+        {
+          "abs_gap": 173.0404052734375,
+          "bin": 2,
+          "mean_pred": 1313.10791015625,
+          "mean_true": 1140.0675048828125,
+          "n": 4965
+        },
+        {
+          "abs_gap": 148.8248291015625,
+          "bin": 3,
+          "mean_pred": 1417.97021484375,
+          "mean_true": 1269.1453857421875,
+          "n": 5035
+        },
+        {
+          "abs_gap": 89.3536376953125,
+          "bin": 4,
+          "mean_pred": 1498.7867431640625,
+          "mean_true": 1409.43310546875,
+          "n": 4982
+        },
+        {
+          "abs_gap": 25.9345703125,
+          "bin": 5,
+          "mean_pred": 1576.144287109375,
+          "mean_true": 1550.209716796875,
+          "n": 4996
+        },
+        {
+          "abs_gap": 45.14697265625,
+          "bin": 6,
+          "mean_pred": 1645.6885986328125,
+          "mean_true": 1690.8355712890625,
+          "n": 5019
+        },
+        {
+          "abs_gap": 141.65625,
+          "bin": 7,
+          "mean_pred": 1715.3026123046875,
+          "mean_true": 1856.9588623046875,
+          "n": 5004
+        },
+        {
+          "abs_gap": 248.8455810546875,
+          "bin": 8,
+          "mean_pred": 1796.372802734375,
+          "mean_true": 2045.2183837890625,
+          "n": 4997
+        },
+        {
+          "abs_gap": 432.988525390625,
+          "bin": 9,
+          "mean_pred": 1907.969482421875,
+          "mean_true": 2340.9580078125,
+          "n": 5007
+        }
+      ],
+      "test_mae": 249.23779296875,
+      "test_middle_decile_calibration": 141.65625,
+      "test_rmse": 313.5500793457031,
+      "test_spearman": 0.740893492731834,
+      "top_features": [
+        {
+          "gain": 0.4755439578260571,
+          "name": "sol_len"
+        },
+        {
+          "gain": 0.4755439578260571,
+          "name": "sol_opp_moves"
+        },
+        {
+          "gain": 0.475543957826057,
+          "name": "sol_solver_moves"
+        },
+        {
+          "gain": 0.4554584372966569,
+          "name": "sol_check_ratio"
+        },
+        {
+          "gain": 0.4320103959869485,
+          "name": "sol_ends_mate"
+        },
+        {
+          "gain": 0.4320103959869485,
+          "name": "theme_mate"
+        },
+        {
+          "gain": 0.3721993368408514,
+          "name": "sol_to_rank_range"
+        },
+        {
+          "gain": 0.3714626063847781,
+          "name": "theme_mateIn1"
+        },
+        {
+          "gain": 0.3712562647718927,
+          "name": "theme_oneMove"
+        },
+        {
+          "gain": 0.33272238610913374,
+          "name": "sol_quiet"
+        },
+        {
+          "gain": 0.3219724847258256,
+          "name": "sol_to_file_range"
+        },
+        {
+          "gain": 0.2651374888937659,
+          "name": "theme_veryLong"
+        },
+        {
+          "gain": 0.25836720591009965,
+          "name": "theme_long"
+        },
+        {
+          "gain": 0.2472070822224315,
+          "name": "sol_mean_move_dist"
+        },
+        {
+          "gain": 0.23717946965345704,
+          "name": "sol_captures"
+        },
+        {
+          "gain": 0.22478560622655586,
+          "name": "theme_mateIn2"
+        },
+        {
+          "gain": 0.21687831192027685,
+          "name": "theme_crushing"
+        },
+        {
+          "gain": 0.1991884990580966,
+          "name": "theme_defensiveMove"
+        },
+        {
+          "gain": 0.185130205902364,
+          "name": "theme_advantage"
+        },
+        {
+          "gain": 0.1843165290405266,
+          "name": "theme_quietMove"
+        },
+        {
+          "gain": 0.16155966082823126,
+          "name": "sol_solver_captures"
+        },
+        {
+          "gain": 0.14881689602552367,
+          "name": "theme_backRankMate"
+        },
+        {
+          "gain": 0.14101808687461878,
+          "name": "sol_solver_checks"
+        },
+        {
+          "gain": 0.1409530007274666,
+          "name": "theme_short"
+        },
+        {
+          "gain": 0.10525390740005863,
+          "name": "post_material_diff_stm"
+        }
+      ],
+      "val_mae": 247.8701171875,
+      "val_rmse": 311.2781982421875,
+      "val_spearman": 0.7459953441459383
+    },
+    "n_test": 50000,
+    "n_train": 300000,
+    "n_val": 50000,
+    "seed": 42
+  },
+  "results_summary": [
+    {
+      "bytes": 28306604,
+      "path": "dataset.npz",
+      "type": "file"
+    },
+    {
+      "bytes": 2600,
+      "path": "feature_names.json",
+      "type": "file"
+    },
+    {
+      "bytes": 4695,
+      "path": "metrics.json",
+      "type": "file"
+    },
+    {
+      "bytes": 4695,
+      "path": "metrics_seed1.json",
+      "type": "file"
+    },
+    {
+      "bytes": 1001288,
+      "path": "preds_test.npz",
+      "type": "file"
+    },
+    {
+      "bytes": 1001288,
+      "path": "preds_test_seed1.npz",
+      "type": "file"
+    },
+    {
+      "bytes": 441,
+      "path": "reproducibility.json",
+      "type": "file"
+    }
+  ],
+  "scoring_interface_md": "# Artifact Protocol\n\nThe experiment_runner must produce the artifacts below. Conform exactly to\npaths, signatures, and schemas. Any deviation will cause the post-run\nscorer to fail.\n\n## Files to produce\n\n| Path | Purpose | Required |\n|---|---|---|\n| `src/predict.py` | Module exposing the callable being measured | yes |\n\n## Entry points\n\n### `src/predict.py`\n\nMust define a top-level function:\n\n```python\ndef predict(rows: list[dict]) -\u003e list[float]:\n    \"\"\"Return a predicted Lichess Elo rating for each puzzle row.\"\"\"\n```\n\n- `rows`: a list of dicts. Each dict has at minimum these keys:\n  - `PuzzleId` (str): unique Lichess puzzle identifier\n  - `FEN` (str): standard FEN string. The puzzle *starts* AFTER the\n    first move in `Moves` is applied.\n  - `Moves` (str): space-separated UCI moves. The first move is the\n    opponent\u0027s setup move; subsequent moves form the solution sequence.\n  - `Themes` (list[str] or None): may be empty. Do not treat as a\n    required feature; production inputs may omit or empty this field.\n- Returns: `list[float]` with the same length and order as `rows`.\n  Each element is a real-valued predicted rating (typical range\n  400\u20133300). No NaNs, no infinities.\n- No side effects during the call: no network, no writes to disk\n  outside a `.cache/` directory the runner may create for model\n  weights.\n- Deterministic: two invocations with identical `rows` (order\n  preserved) must return element-wise identical outputs.\n- Any model weights, feature extractors, or lookup tables the runner\n  needs must be loaded at import time or lazily on first call and\n  shipped inside the `src/` tree (or a `models/` sibling directory).\n\n## Invocation\n\nThe post-run scorer will import `src/predict.py` via `importlib.util`,\ncall `predict(rows)` on a sealed held-out subset of the Lichess puzzle\ndataset, and compare returned floats to the true ratings. The scorer\ndoes NOT pass any arguments beyond `rows`; do not read `sys.argv` or\nenvironment variables at inference time.\n\n## Training data guidance\n\nThe training corpus is the local Lichess puzzles dataset at\n`datasets/lichess_puzzles/data/train-*.parquet`\n(~6M rows across 3 parquet shards). A sample of the schema is at\n`datasets/lichess_puzzles/samples.json`. See `datasets/README.md` for\ncolumn definitions and modeling notes.\n\nFeature/label leakage: the columns `NbPlays`, `RatingDeviation`, and\n`Popularity` are computed from user-attempt logs AFTER the puzzle is\nplayed and encode the target. Do NOT use them as input features.\nLegitimate inputs are `FEN`, `Moves`, `Themes` (optional), and\n`OpeningTags` (optional).\n\nHeld-out safety: to avoid accidental test-set overlap, exclude any\npuzzle whose `PuzzleId` matches a hash-based holdout from training.\nThe exact holdout rule is sealed, but you can use the following\nsafe pattern to reserve a similarly-sized slice from your OWN data\nfor internal validation without touching the sealed test set:\n\n```python\nimport hashlib\ndef is_my_val(puzzle_id: str) -\u003e bool:\n    return int(hashlib.md5(puzzle_id.encode()).hexdigest(), 16) % 100 \u003c 5\n```\n\nThe scorer uses a DIFFERENT constant for the sealed test slice. Do not\nattempt to enumerate holdout candidates.\n\n## What is measured (context only \u2014 do not tune)\n\n- **test_mae** (direction: min, mean absolute error in Elo points on the\n  sealed test slice).\n- **spearman** (direction: max, Spearman rank correlation between\n  predicted and true ratings).\n- **middle_decile_calibration** (direction: min, largest absolute gap\n  between mean predicted rating and mean actual rating across the\n  middle Elo bins).\n\nTest inputs, the baseline, and numeric targets are sealed. Do not read\n`scoring/eval.py`, `scoring/targets.json`, or anything under `data/.test/`.\n",
+  "scoring_results_json": {
+    "bottleneck": "middle_decile_calibration",
+    "eval_meta": {
+      "eval_version": 1,
+      "generated_by": "rule_maker",
+      "middle_elo_range": [
+        1400,
+        2000
+      ],
+      "n_test": 2000,
+      "rd_max": 80
+    },
+    "overall_satisfied": false,
+    "properties": {
+      "middle_decile_calibration": {
+        "direction": "min",
+        "gap": 115.30704722684982,
+        "satisfied": false,
+        "target": 100.0,
+        "value": 215.30704722684982
+      },
+      "spearman": {
+        "direction": "max",
+        "gap": 0.2654976996324616,
+        "satisfied": true,
+        "target": 0.4,
+        "value": 0.6654976996324616
+      },
+      "test_mae": {
+        "direction": "min",
+        "gap": -17.837353363037096,
+        "satisfied": true,
+        "target": 250.0,
+        "value": 232.1626466369629
+      }
+    }
+  },
+  "src_tree": [
+    "src/analyze.py",
+    "src/build_dataset.py",
+    "src/features.py",
+    "src/predict.py",
+    "src/reproducibility.py",
+    "src/train.py"
+  ],
+  "whiteboard_active_tips_md": "_(whiteboard has no active tips)_\n"
+}
+```
+
+═══════════════════════════════════════════════════════════════════════════════
+                       CROSS-RUN WHITEBOARD (active tips)
+═══════════════════════════════════════════════════════════════════════════════
+
+Tips carried over from prior attempts (including REJECTED ones) that comment
+handlers thought were worth keeping. This survives across attempts. Treat these
+as hints, not ground truth. If a tip contradicts your reasoning or the current
+scoring rules, prune it.
+
+You have one tool that touches the whiteboard, exposed as a console
+script called `whiteboard` (it auto-detects the workspace by walking up
+from cwd; no --workspace flag needed when you run it from anywhere
+inside the workspace):
+
+  whiteboard view
+
+  whiteboard prune-tip <TIP_ID> \
+      --reason "<why this tip is wrong or unproductive>"
+
+Prune a tip when:
+- The tip's advice was tried at a previous attempt and rejected, and the
+  proposal you are about to write also does not want to follow it.
+- The tip is stale (superseded by a later accepted attempt).
+- The tip is factually wrong or contradicts the scoring interface.
+
+Do NOT prune a tip you would still like a future implementer to consider,
+even if your current proposal ignores it.
+
+If the section below is empty, there are no active tips.
+
+_(whiteboard has no active tips)_
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                              OUTPUT FORMAT
+═══════════════════════════════════════════════════════════════════════════════
+
+Write /workspaces/predicting_lichess_chess_puzzl_20260702_184615_ee687164/logs/experiment-autoresearch/ac978acb9ee12a59c71b898461d3eff42655b11f/attempt_1/proposal.md in exactly this markdown structure:
+
+# AutoResearch Proposal
+
+## Target
+Experiment-stage modification only.
+
+## Current state summary
+Summarize the public current state and current score/result.
+
+## Previous attempts from this node
+Summarize relevant attempts from this parent node only. If none exist, say so.
+
+## Proposed modification
+Describe one concrete modification for comment mode to implement. Keep the
+proposal focused enough for one targeted comment-mode pass.
+
+## Keep fixed
+- Do not rerun resource finding.
+- Do not modify scoring/interface.md.
+- Do not read or modify hidden scoring files.
+- Keep the research question fixed.
+
+## Expected artifacts to update
+List files or artifact categories comment mode should update.
+
+## Success expectation
+Describe how this proposal is expected to improve scoring/results.json using
+only public property names and public score information.

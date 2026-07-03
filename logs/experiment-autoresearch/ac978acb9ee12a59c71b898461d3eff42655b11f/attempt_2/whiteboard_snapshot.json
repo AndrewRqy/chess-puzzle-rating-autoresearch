@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "next_id_num": 4,
+  "saved_at": 1783023434.135522,
+  "tips": [
+    {
+      "id": "T1",
+      "category": "insight",
+      "content": "For Lichess-puzzle rating with a tree-based booster and RD<90 filter, a CDF quantile-matching calibrator (searchsorted + interp on sorted val_pred vs sorted val_true) reduces middle-decile calibration gaps much more than IsotonicRegression, at a cost of ~14 Elo MAE. Isotonic minimizes squared error subject to monotonicity and compresses predictions in noisy val pockets; CDF matches empirical percentiles one-for-one and restores the full predicted spread. Both are monotone so Spearman is preserved exactly. On this task the swap moved internal middle-decile calibration 141.7 -> 79.0 while MAE went 249.2 -> 263.5.",
+      "status": "cleared",
+      "author": "comment_handler@ac978ac",
+      "written_at": 1783022921.2288194,
+      "affects": [
+        "src/predict.py",
+        "src/train.py"
+      ],
+      "cleared_by": "comment_handler@ac978ac",
+      "cleared_at": 1783023425.9575768,
+      "pruned_reason": "",
+      "pruned_at": 0.0
+    },
+    {
+      "id": "T2",
+      "category": "design",
+      "content": "For calibrator-layer changes on this puzzle-rating pipeline: fit BOTH isotonic and CDF quantile-matching on the val slice and blend as alpha*iso + (1-alpha)*cdf. Pick alpha on val by argmin of a mid-decile-cal proxy (bins with mean-true in [1400,2000]) subject to val_mae(alpha) <= val_mae(alpha=1.0) + 5 Elo. This preserves the sealed-MAE headroom (val is ~16 Elo higher than sealed on this task) and lands alpha ~= 0.35, which restores enough tail spread to nearly close the mid-decile gap while keeping MAE well below target. A convex blend of two monotone calibrators is monotone, so Spearman is preserved exactly. Fallback to alpha=1.0 if constraint infeasible means no regression is possible relative to isotonic-only parent.",
+      "status": "active",
+      "author": "comment_handler@ac978ac",
+      "written_at": 1783023422.2354739,
+      "affects": [
+        "src/predict.py",
+        "src/train.py"
+      ],
+      "cleared_by": "",
+      "cleared_at": 0.0,
+      "pruned_reason": "",
+      "pruned_at": 0.0
+    },
+    {
+      "id": "T3",
+      "category": "insight",
+      "content": "The bottleneck is now raw-booster spread, not the calibrator. With alpha=0.35 the calibrator has restored most of the achievable tail spread (D9 mean-pred rose 1908 -> 2013 vs. mean-true 2341). Further mid-decile calibration gains require widening RAW booster predictions in the [1800, 2200] range. Promising next attempts: tail-emphasis sample weights (upweight training rows with y_true>1900 by e.g. 1.5-2x), a two-head quantile regressor, or a targeted feature set for hard puzzles (e.g. Stockfish eval drop). Simply pushing alpha lower breaks the val_mae budget and blows sealed-MAE past 250.",
+      "status": "active",
+      "author": "comment_handler@ac978ac",
+      "written_at": 1783023434.1353855,
+      "affects": [
+        "src/train.py"
+      ],
+      "cleared_by": "",
+      "cleared_at": 0.0,
+      "pruned_reason": "",
+      "pruned_at": 0.0
+    }
+  ]
+}

@@ -1,0 +1,115 @@
+{
+  "parent_node_id": "ac978acb9ee12a59c71b898461d3eff42655b11f",
+  "parent_sha": "ac978acb9ee12a59c71b898461d3eff42655b11f",
+  "child_node_id": "e67156a75f41edcf1e48e88025da9b720657e767",
+  "child_sha": "e67156a75f41edcf1e48e88025da9b720657e767",
+  "accepted": true,
+  "reason": "Candidate keeps the same satisfied-property set, has no metric normalized-margin regressions, and improves middle_decile_calibration, spearman.",
+  "parent_score_summary": {
+    "valid": true,
+    "source": "parent",
+    "properties": {
+      "test_mae": {
+        "value": 232.1626466369629,
+        "target": 250.0,
+        "direction": "min",
+        "satisfied": true,
+        "margin": 0.07134941345214839
+      },
+      "spearman": {
+        "value": 0.6654976996324616,
+        "target": 0.4,
+        "direction": "max",
+        "satisfied": true,
+        "margin": 0.2654976996324616
+      },
+      "middle_decile_calibration": {
+        "value": 215.30704722684982,
+        "target": 100.0,
+        "direction": "min",
+        "satisfied": false,
+        "margin": -1.1530704722684981
+      }
+    },
+    "error": null
+  },
+  "child_score_summary": {
+    "valid": true,
+    "source": "candidate",
+    "properties": {
+      "test_mae": {
+        "value": 244.31167987060547,
+        "target": 250.0,
+        "direction": "min",
+        "satisfied": true,
+        "margin": 0.022753280517578106
+      },
+      "spearman": {
+        "value": 0.6656449965378456,
+        "target": 0.4,
+        "direction": "max",
+        "satisfied": true,
+        "margin": 0.26564499653784557
+      },
+      "middle_decile_calibration": {
+        "value": 174.001565885143,
+        "target": 100.0,
+        "direction": "min",
+        "satisfied": false,
+        "margin": -0.7400156588514301
+      }
+    },
+    "error": null
+  },
+  "comment_result": {
+    "success": true,
+    "log_file": "/workspaces/predicting_lichess_chess_puzzl_20260702_184615_ee687164/logs/comment_handler_claude.log",
+    "transcript_file": "/workspaces/predicting_lichess_chess_puzzl_20260702_184615_ee687164/logs/comment_handler_claude_transcript.jsonl",
+    "elapsed_time": 391.2336859703064
+  },
+  "scorer_result": {
+    "success": true,
+    "return_code": 0,
+    "results": {
+      "properties": {
+        "test_mae": {
+          "value": 244.31167987060547,
+          "direction": "min",
+          "target": 250.0,
+          "satisfied": true,
+          "gap": -5.688320129394526
+        },
+        "spearman": {
+          "value": 0.6656449965378456,
+          "direction": "max",
+          "target": 0.4,
+          "satisfied": true,
+          "gap": 0.26564499653784557
+        },
+        "middle_decile_calibration": {
+          "value": 174.001565885143,
+          "direction": "min",
+          "target": 100.0,
+          "satisfied": false,
+          "gap": 74.00156588514301
+        }
+      },
+      "overall_satisfied": false,
+      "bottleneck": "middle_decile_calibration",
+      "eval_meta": {
+        "eval_version": 1,
+        "generated_by": "rule_maker",
+        "n_test": 2000,
+        "rd_max": 80,
+        "middle_elo_range": [
+          1400,
+          2000
+        ]
+      }
+    },
+    "results_path": "/workspaces/predicting_lichess_chess_puzzl_20260702_184615_ee687164/scoring/results.json",
+    "log_path": "/workspaces/predicting_lichess_chess_puzzl_20260702_184615_ee687164/scoring/eval_log.txt",
+    "elapsed_time": 6.217835187911987,
+    "error": null
+  }
+}

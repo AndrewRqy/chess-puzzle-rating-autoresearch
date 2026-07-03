@@ -1,0 +1,37 @@
+{
+  "properties": {
+    "test_mae": {
+      "value": 244.31167987060547,
+      "direction": "min",
+      "target": 250.0,
+      "satisfied": true,
+      "gap": -5.688320129394526
+    },
+    "spearman": {
+      "value": 0.6656449965378456,
+      "direction": "max",
+      "target": 0.4,
+      "satisfied": true,
+      "gap": 0.26564499653784557
+    },
+    "middle_decile_calibration": {
+      "value": 174.001565885143,
+      "direction": "min",
+      "target": 100.0,
+      "satisfied": false,
+      "gap": 74.00156588514301
+    }
+  },
+  "overall_satisfied": false,
+  "bottleneck": "middle_decile_calibration",
+  "eval_meta": {
+    "eval_version": 1,
+    "generated_by": "rule_maker",
+    "n_test": 2000,
+    "rd_max": 80,
+    "middle_elo_range": [
+      1400,
+      2000
+    ]
+  }
+}

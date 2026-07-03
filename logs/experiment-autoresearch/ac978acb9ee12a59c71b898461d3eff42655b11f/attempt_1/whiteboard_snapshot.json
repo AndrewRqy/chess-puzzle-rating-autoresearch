@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "next_id_num": 2,
+  "saved_at": 1783022921.228935,
+  "tips": [
+    {
+      "id": "T1",
+      "category": "insight",
+      "content": "For Lichess-puzzle rating with a tree-based booster and RD<90 filter, a CDF quantile-matching calibrator (searchsorted + interp on sorted val_pred vs sorted val_true) reduces middle-decile calibration gaps much more than IsotonicRegression, at a cost of ~14 Elo MAE. Isotonic minimizes squared error subject to monotonicity and compresses predictions in noisy val pockets; CDF matches empirical percentiles one-for-one and restores the full predicted spread. Both are monotone so Spearman is preserved exactly. On this task the swap moved internal middle-decile calibration 141.7 -> 79.0 while MAE went 249.2 -> 263.5.",
+      "status": "active",
+      "author": "comment_handler@ac978ac",
+      "written_at": 1783022921.2288194,
+      "affects": [
+        "src/predict.py",
+        "src/train.py"
+      ],
+      "cleared_by": "",
+      "cleared_at": 0.0,
+      "pruned_reason": "",
+      "pruned_at": 0.0
+    }
+  ]
+}
