@@ -1,0 +1,11 @@
+{
+  "test_mae": {"target": 250.0, "direction": "min"},
+  "spearman": {"target": 0.4, "direction": "max"},
+  "middle_decile_calibration": {"target": 100.0, "direction": "min"},
+  "success_rule": "ALL_PROPERTIES_SATISFIED",
+  "meta": {
+    "generated_by": "rule_maker",
+    "domain": "machine_learning",
+    "rationale_ref": "scoring/rule_maker_log.md"
+  }
+}
