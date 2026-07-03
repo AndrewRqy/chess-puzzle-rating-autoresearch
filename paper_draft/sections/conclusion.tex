@@ -1,0 +1,19 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+We proposed \ours, a compact CPU-only 155-feature gradient-boosted regressor for predicting Lichess puzzle Glicko-2 ratings, and paired it with a budgeted convex isotonic--CDF calibrator blend. On a 50{,}000-puzzle internal test slice, \ours reaches MAE 240.8 \elo (12.8 \elo below a controlled 141-feature parent baseline; 148.8 \elo below the global-mean baseline), Spearman $\rho = 0.768$, and middle-decile calibration 85.6 \elo --- clearing the $< 100$ stretch target for the first time on this pipeline. Cross-seed reproducibility is essentially exact ($\Delta$MAE = 0.12) and both seeds independently pick calibrator $\alpha = 0.30$.
+
+\para{Key takeaway.}
+The entire improvement over the parent pipeline is attributable to 14 tactical-density and setup-move features that directly encode candidate-move ambiguity along the solution. Three of the new features enter the top-15 correlation-proxy importance list on introduction, with \texttt{sol\_legal\_sum} ranking 5th ahead of every theme flag except \texttt{theme\_mate}. This is what a $12.8$-\elo controlled-ablation gain from a targeted feature-engineering change looks like.
+
+\para{Future work.}
+Four directions merit attention.
+\begin{itemize}[leftmargin=*,itemsep=0pt,topsep=0pt]
+    \item \textbf{\maia-bracket features}~\citep{mcilroy2020aligning,jacob2024maia2}: probe \maia at each \elo band on the puzzle FEN; the lowest bracket at which \maia matches the puzzle's best move should saturate the mid-difficulty signal we currently miss.
+    \item \textbf{Stockfish evaluation drop}: $|\text{eval(post-setup)} - \text{eval(pre-setup)}|$ quantifies the ``obviousness'' of the setup mistake and correlates with difficulty.
+    \item \textbf{A small CNN over 16-plane piece tensors}, concatenated with our shallow features. \ratingnet-style but shallow enough for CPU training.
+    \item \textbf{Rating-conditioned quantile heads}: a two-head model that predicts both mean rating and per-example variance would let us reason about difficulty confidence directly, potentially closing the D8--D9 noise-floor gap where Glicko-2 RD is inherently higher.
+\end{itemize}
+
+\para{Open question.}
+How much of the residual $\approx 23$-\elo gap to \glickformer is inherent noise (Glicko-2 RD floor on rare tail puzzles with fewer solve attempts) versus missing representation (patterns visible to a spatio-temporal transformer)? The RD-weighted training helps but does not quantify the split. A quantile-head model that emits both mean and variance would give a principled answer, and is our recommended next iteration.

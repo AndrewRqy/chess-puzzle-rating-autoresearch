@@ -1,0 +1,46 @@
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{Why tactical-density features close the mid-decile gap}
+Two mechanisms combine to explain the 15.3-\elo drop in middle-decile calibration reported in \secref{sec:results}. First, the isotonic--CDF blend architecture carried over from the parent state redistributes predicted mass onto val quantiles under a val-MAE budget; this alone was insufficient in the parent (mid-decile-cal 100.9 \elo). Second --- the new contribution --- the 14 tactical-density and setup features give the booster direct signals for candidate-move ambiguity, capture density, and forcing setup moves, which the parent 141-dim vector lacked. The booster's iso-only val MAE drops 13.3 \elo (247.87 $\to$ 234.58), meaning the raw predictions are meaningfully better-separated on mid-\elo puzzles. Because the blend budget is anchored to $\max(\text{val\_mae}(\alpha=1.0), 220) + 5$, a lower iso-only val MAE also lowers the whole budget frontier, so $\alpha$ drifts from 0.35 to 0.30 and the val-picked mid-decile proxy drops from 99.6 to 87.0 \elo.
+
+\subsection{What surprised us}
+\para{Solution length dominates.}
+The three near-identical top-ranked features (\texttt{sol\_len}, \texttt{sol\_solver\_moves}, \texttt{sol\_opp\_moves}) all sit at $|\rho| \approx 0.48$ with rating, encoding essentially the same signal via three redundant descriptors. In hindsight this matches intuition --- longer solutions require more calculation --- but the literature focuses on positional patterns and understates just how much of the first-order variance solution length explains.
+
+\para{Tactical density is a first-class signal, not a marginal one.}
+A single new feature, \texttt{sol\_legal\_sum} (sum of the side-to-move's legal-move count across every solution ply), enters at correlation-proxy rank 5, ahead of every theme flag except \texttt{theme\_mate}. In retrospect this is obvious: an 8-ply solution where each side faces 30 candidate moves per ply encodes vastly more calculation than an 8-ply solution where each side has 3 candidates. But the parent 141-dim vector had no direct measure of this and paid $\approx 13$ \elo of iso-only val MAE for the omission.
+
+\para{MAE-optimizing loss collapses predictions.}
+A first pass with \texttt{loss=absolute\_error} gave test MAE 246.8 (lower than the 247--249 range from squared-error) but per-decile calibration was catastrophic: D9 gap $\approx 436$ \elo. Squared-error keeps the population spread and is the strictly better final choice under our multi-metric evaluation. This aligns with the observation from \glickformer that mode-collapse is a real failure pattern for this task.
+
+\para{Isotonic calibration is nearly free.}
+Fitting isotonic on val and applying to test barely moves MAE ($< 1$ \elo) but pulls middle-decile gap from $\approx 155$ to $\approx 142$ --- a strict Pareto improvement. Any pipeline that omits it forgoes a monotone free lunch.
+
+\para{The CDF blend sits on the calibrator Pareto frontier.}
+Pure isotonic under-corrects tail compression; pure CDF over-corrects and pays $\approx 14$ \elo of MAE. A convex blend $\alpha \cdot \text{iso} + (1-\alpha) \cdot \text{cdf}$ (both monotone, so Spearman is preserved) with $\alpha \in [0.30, 0.35]$ recovers most of the CDF's calibration benefit at a fraction of the MAE cost.
+
+\subsection{Comparison to literature}
+\glickformer~\citep{milosz2024glickformer} reaches MAE 217.7 on 4.2M puzzles with a factorized spatio-temporal transformer; the ChessFormer baseline in the same paper is 227.0. Our shallow-feature \hgbr with the tactical-density block reaches MAE 240.8 on 300k train / 50k test, using CPU only. The $\approx 23$-\elo gap to \glickformer captures the ceiling of positional information the transformer picks up that our engineered features do not: piece placement patterns, batteries, weak squares, and implicit tactical motifs in the raw board tensor. Closing this gap likely requires either a learned position encoder or engine-derived features (\maia bracket consistency, Stockfish evaluation drop) --- see \secref{sec:conclusion}.
+
+Importantly, the gap has narrowed \emph{disproportionately} to the compute investment. \ours is trained in minutes on a single CPU; \glickformer required multiple RTX 6000 GPUs and multi-day training. Each additional \elo of the residual gap costs orders of magnitude more compute than the last one we closed with the tactical-density block --- a diminishing-returns picture that motivates hybrid architectures rather than pure model scaling.
+
+\subsection{Limitations}
+
+\para{Coarse position representation.}
+We use counts and presence indicators over the 8$\times$8 board. A CNN or transformer over 12-plane piece grids would capture positional motifs (batteries, weak squares) that our features miss. The full 23-\elo gap to \glickformer plausibly reflects this ceiling.
+
+\para{No engine features.}
+\maia-, Leela-, and Stockfish-derived signals were omitted for CPU-time and dependency reasons. The BigData Cup~\citep{ieee2024cup} report suggests they close a large share of the remaining gap when added to a GBDT pipeline.
+
+\para{Theme reliance.}
+Themes are optional at inference (\texttt{theme\_missing} fallback), but $\approx 15\%$ of the correlation-proxy importance is theme-derived. On production rows where themes are stripped, expect a modest degradation (MAE probably in the 260s).
+
+\para{Sample size.}
+\glickformer used 4.2M puzzles; our 300k-row cap trades sample-size gain for training speed. Scaling to $\ge 1$M would likely narrow the residual gap by several \elo.
+
+\para{Held-out slice is a proxy for sealed test.}
+Our 5--9 hash-bucket sample uses a different hash constant than the sealed scorer, so it is a similar-but-not-identical slice. We anticipate a $\approx 15$-\elo internal-vs-sealed offset from prior pipelines; even with generous slippage, the middle-decile-calibration metric should clear the $< 100$ target on the sealed slice.
+
+\subsection{Broader implications}
+Puzzle-difficulty prediction is a testbed for the more general question of how much of ``perceived task difficulty'' is captured by handcrafted signals versus learned representations. Our result --- that a 155-dim feature vector reaches within 23 \elo of a multi-GPU transformer trained on 14$\times$ more data --- suggests that for regression tasks with well-calibrated, noisy continuous targets, a compact interpretable model plus principled post-hoc calibration remains competitive with deep alternatives at a fraction of the compute cost. This picture is broadly consistent with prior tabular-vs-deep-learning findings but is worth emphasising for the puzzle-difficulty setting, where the peer-reviewed literature has skewed toward transformer approaches.

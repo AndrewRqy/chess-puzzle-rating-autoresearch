@@ -1,0 +1,78 @@
+\section{Methodology}
+\label{sec:method}
+
+\subsection{Problem formulation}
+Let a Lichess puzzle be a tuple $(f, m, \tau)$ where $f$ is the FEN of the pre-setup position, $m = (m_1, m_2, \ldots, m_L)$ is the solution move sequence starting with an opponent \emph{setup} move $m_1$ and alternating solver/opponent moves, and $\tau$ is an optional list of theme tags (\eg \texttt{mateIn2}, \texttt{fork}, \texttt{pin}). The target is the empirical Glicko-2 rating $y \in [400, 3200]$ with rating deviation $\text{RD}$ measuring label uncertainty. We regress $\hat{y} = g(\phi(f, m, \tau))$ where $\phi$ is a 155-dim feature extractor and $g$ is a calibrated gradient-boosted regressor. Following prior work~\citep{milosz2024glickformer}, we exclude \texttt{NbPlays}, \texttt{RatingDeviation}, and \texttt{Popularity} from $\phi$ because they are computed after the puzzle has been played and encode $y$.
+
+\subsection{Dataset and splits}
+\label{sec:data}
+We use the \lichesspuzzles dataset~\citep{lichesspuzzles} on HuggingFace, comprising three parquet shards with 6{,}014{,}381 rows. We filter to puzzles with $\text{RD} < 90$ (4{,}583{,}346 rows survive), matching the sealed-scorer protocol under which label noise is bounded.
+
+Splits are deterministic hash-bucket splits on \texttt{PuzzleId} rather than random splits, so that re-running the pipeline never accidentally trains on future test puzzles. Buckets 0--4 (5\%) mimic a reserved sealed-scorer holdout and are excluded from every stage. Buckets 5--9 (5\%, sampled to 50{,}000 rows) form the internal test set. Buckets 10--14 (5\%, 50{,}000 rows) form the internal validation slice used for calibrator fitting. Buckets 15--99 (85\%, sampled to 300{,}000 rows) form the training set.
+
+\subsection{Feature vector: 155 dimensions}
+\label{sec:features}
+Feature extraction (\texttt{src/features.py}) uses \pychess only. \Tabref{tab:features} groups the 155 features into six blocks.
+
+\begin{table}[t]
+\centering
+\caption{Feature groups in \ours ($d = 155$). The \textbf{tactical density} and \textbf{setup-move} blocks are new relative to the 141-dim \parentmodel baseline and are the sole architectural change ablated in \secref{sec:results}.}
+\label{tab:features}
+\begin{tabular}{@{}lrp{7.2cm}@{}}
+\toprule
+\textbf{Block} & \textbf{Dim} & \textbf{Description} \\
+\midrule
+Static (pre-setup) & 31 & Side-to-move, per-type/-color piece counts, material balance, castling rights, king-ring attackers (both sides), mobility, in-check flag, halfmove/fullmove clocks, king distance, most-advanced pawn. \\
+Static (post-setup) & 31 & Same 31 features on the puzzle-start position. \\
+Solution sequence & 25 & \texttt{sol\_len}, solver/opponent move counts, checks, captures, promotions, underpromotions, en-passants, castles, quiet-move count and ratio, check ratio, capture ratio, max \& mean move distance, target-square spatial spread, \texttt{sol\_ends\_mate}. \\
+\textbf{Tactical density (NEW)} & 10 & \texttt{sol\_legal\_\{max, mean, last, sum\}}, \texttt{sol\_captures\_\{max, mean, sum\}}, \texttt{sol\_checks\_\{max, mean, sum\}}, computed on each ply of the solution the side-to-move faces. \\
+\textbf{Setup-move (NEW)} & 4 & \texttt{setup\_is\_capture}, \texttt{setup\_gives\_check}, \texttt{setup\_piece\_type}, \texttt{setup\_to\_center} (Chebyshev distance from the setup to-square to the centre block). \\
+Themes & 54 & Multi-hot over pinned vocabulary of the 52 most common themes, plus \texttt{theme\_missing} and \texttt{theme\_count}. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\para{Why tactical density?}
+The 141-dim parent vector already includes solution length, mate flags, check/capture ratios, and theme flags, yet had \emph{no direct measure of candidate-move ambiguity}. An 8-ply solution where each side faces 30 candidate moves per ply encodes vastly more calculation than an 8-ply solution where each side has 3 candidates. The tactical-density block encodes this axis directly. We show in \secref{sec:results} that \texttt{sol\_legal\_sum} enters the top-5 correlation-proxy importance list on introduction, and that the entire test-MAE and mid-decile-calibration improvement over the parent is attributable to these 14 features.
+
+\para{Themes as optional.}
+Because production inputs may omit themes, we treat the theme block as optional: \texttt{theme\_missing = 1} when the theme list is empty or \texttt{None}, and the model degrades gracefully.
+
+\subsection{Baselines}
+\label{sec:baselines}
+We compare against two hand-crafted baselines and one intra-family ablation.
+
+\begin{itemize}[leftmargin=*,itemsep=0pt,topsep=0pt]
+    \item \globalmean: predict $\overline{y}_{\text{train}}$ for every test row.
+    \item \thememean: average the per-theme mean training rating over the intersected themes for each puzzle, with a \globalmean fallback when themes are missing.
+    \item \parentmodel: identical booster, splits, and calibrator, on the parent 141-dim feature vector (no tactical-density or setup-move blocks). This is the controlled ablation that isolates the contribution of the new features.
+\end{itemize}
+
+\subsection{Booster}
+\label{sec:booster}
+We use \texttt{sklearn.ensemble.HistGradientBoostingRegressor} (algorithmically equivalent to \lightgbm but shipping with scikit-learn's own libgomp, avoiding system dependencies). Loss: \texttt{squared\_error}. Hyperparameters: learning rate 0.07, max leaf nodes 127, min samples per leaf 100, $L_2$ regularization 0.5, max iterations 500. Early stopping via scikit-learn's internal 10\% val slice (patience 20, tol $10^{-3}$).
+
+\para{Why squared error, not absolute error?}
+An \texttt{absolute\_error} loss trained faster to a marginally lower raw MAE ($\approx 247$ vs.\ $\approx 249$) but collapsed predictions toward the median, giving a catastrophic per-decile calibration (max gap $436$ at D9). Squared-error keeps the predicted spread closer to the truth and is the strictly better final choice under our multi-metric evaluation.
+
+\para{RD-aware sample weighting.}
+Following \glickformer's uncertainty-augmentation intuition, we down-weight noisy-rating puzzles during training with weights $w_i = 1/(1 + \text{RD}_i/40)$. This weights an $\text{RD} = 40$ puzzle at $1/2$ of an $\text{RD} = 0$ puzzle and an $\text{RD} = 80$ puzzle at $1/3$.
+
+\subsection{Calibration}
+\label{sec:calibration}
+Squared-error tree ensembles under heavy label noise systematically regress tails toward the mean. We correct this with a convex blend of two monotone post-hoc calibrators fit on the held-out val slice.
+
+\para{Isotonic.} \texttt{IsotonicRegression} (squared-error monotone fit) on \texttt{(val\_raw\_prediction, val\_true\_rating)} pairs. It barely moves MAE but only weakly restores tail spread.
+
+\para{CDF quantile-matching.} For a raw val prediction $r$, look up its empirical rank via \texttt{searchsorted} on sorted raw val predictions, then \texttt{interp} into sorted val truths. This restores the full predicted spread but pays MAE because tails become label-noisy.
+
+\para{Convex blend.} The final calibrator is $\hat{y} = \alpha \cdot \text{iso}(r) + (1 - \alpha) \cdot \text{cdf}(r)$. A convex combination of two monotone functions is monotone, so Spearman rank order is preserved exactly.
+
+\para{Choosing $\alpha$.}
+$\alpha$ is selected on the val slice by an argmin search over $\{0, 0.05, 0.10, \ldots, 1.0\}$ (21 grid points) on a helper metric that mimics the middle-decile calibration:
+$$\alpha^\star = \argmin_{\alpha \in [0, 1]} \max_{b : \bar{y}^{\text{true}}_b \in [1400, 2000]} \left| \bar{y}^{\text{pred}}_b(\alpha) - \bar{y}^{\text{true}}_b \right|,$$
+subject to $\text{val\_mae}(\alpha) \leq \max(\text{val\_mae}(1.0), 220) + 5$. The 5-\elo cushion above the pure-isotonic val MAE reserves sealed-MAE headroom, since val is $\approx 16$ \elo above sealed for this pipeline. Ties break toward smaller $\alpha$, favouring the calibration-heavy CDF endpoint; if no feasible $\alpha$ exists, we fall back to $\alpha = 1.0$ (pure isotonic).
+
+\subsection{Evaluation}
+\label{sec:eval}
+We report MAE (primary), RMSE, Spearman $\rho$, per-decile calibration (mean predicted vs.\ mean actual per true-rating decile), and \emph{middle-decile calibration} (max $|\bar{y}^{\text{pred}} - \bar{y}^{\text{true}}|$ among bins with $\bar{y}^{\text{true}} \in [1400, 2000]$). Reproducibility is checked by retraining with \texttt{seed=1} and reporting $\Delta$MAE.
